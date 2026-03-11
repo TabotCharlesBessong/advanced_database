@@ -11,6 +11,9 @@
 
 #include "Predicate.h"
 #include "RecordLayout.h"
+#include "SqlAst.h"
+#include "SqlLexer.h"
+#include "SqlParser.h"
 #include "SlottedPage.h"
 #include "TableHeap.h"
 #include "Value.h"
@@ -384,3 +387,103 @@ TEST(CRUDTest, NullabilityEnforced) {
 
     cleanupFile(dbPath);
 }
+
+TEST(SqlLexerTest, TokenizesCreateInsertSelect) {
+    const std::string sql = "CREATE TABLE users (id INT NOT NULL, name VARCHAR(64), bio TEXT NULL);";
+
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError error;
+    ASSERT_TRUE(lexer.tokenize(tokens, error)) << error.message;
+
+    ASSERT_GE(tokens.size(), 10U);
+    EXPECT_EQ(tokens[0].type, advdb::SqlTokenType::Create);
+    EXPECT_EQ(tokens[1].type, advdb::SqlTokenType::Table);
+    EXPECT_EQ(tokens[2].type, advdb::SqlTokenType::Identifier);
+}
+
+TEST(SqlLexerTest, ReportsUnterminatedString) {
+    advdb::SqlLexer lexer("INSERT INTO users VALUES ('abc);");
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError error;
+    EXPECT_FALSE(lexer.tokenize(tokens, error));
+    EXPECT_FALSE(error.message.empty());
+}
+
+TEST(SqlParserTest, ParsesCreateTableToAst) {
+    const std::string sql = "CREATE TABLE users (id INT NOT NULL, name VARCHAR(64), bio TEXT NULL);";
+
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError error;
+    ASSERT_TRUE(lexer.tokenize(tokens, error));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    ASSERT_TRUE(parser.parse(stmt, error)) << error.message;
+
+    ASSERT_TRUE(std::holds_alternative<advdb::SqlCreateTableStatement>(stmt));
+    const auto& create = std::get<advdb::SqlCreateTableStatement>(stmt);
+    EXPECT_EQ(create.tableName, "users");
+    ASSERT_EQ(create.columns.size(), 3U);
+    EXPECT_EQ(create.columns[0].name, "id");
+    EXPECT_EQ(create.columns[0].nullable, false);
+    EXPECT_EQ(create.columns[1].type, advdb::ColumnType::Varchar);
+    EXPECT_EQ(create.columns[1].varcharLength, 64U);
+}
+
+TEST(SqlParserTest, ParsesInsertAndSelectToAst) {
+    {
+        const std::string insertSql = "INSERT INTO users VALUES (1, 'Alice', NULL);";
+        advdb::SqlLexer lexer(insertSql);
+        std::vector<advdb::SqlToken> tokens;
+        advdb::SqlParseError error;
+        ASSERT_TRUE(lexer.tokenize(tokens, error));
+
+        advdb::SqlParser parser(tokens);
+        advdb::SqlStatement stmt;
+        ASSERT_TRUE(parser.parse(stmt, error)) << error.message;
+        ASSERT_TRUE(std::holds_alternative<advdb::SqlInsertStatement>(stmt));
+        const auto& insert = std::get<advdb::SqlInsertStatement>(stmt);
+        EXPECT_EQ(insert.tableName, "users");
+        ASSERT_EQ(insert.values.size(), 3U);
+        EXPECT_EQ(insert.values[0].kind, advdb::SqlLiteral::Kind::Int);
+        EXPECT_EQ(insert.values[1].kind, advdb::SqlLiteral::Kind::String);
+        EXPECT_EQ(insert.values[2].kind, advdb::SqlLiteral::Kind::Null);
+    }
+
+    {
+        const std::string selectSql = "SELECT id, name FROM users WHERE id >= 10;";
+        advdb::SqlLexer lexer(selectSql);
+        std::vector<advdb::SqlToken> tokens;
+        advdb::SqlParseError error;
+        ASSERT_TRUE(lexer.tokenize(tokens, error));
+
+        advdb::SqlParser parser(tokens);
+        advdb::SqlStatement stmt;
+        ASSERT_TRUE(parser.parse(stmt, error)) << error.message;
+        ASSERT_TRUE(std::holds_alternative<advdb::SqlSelectStatement>(stmt));
+        const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
+        EXPECT_EQ(select.tableName, "users");
+        EXPECT_FALSE(select.selectAll);
+        ASSERT_EQ(select.projection.size(), 2U);
+        EXPECT_TRUE(select.hasWhere);
+        EXPECT_EQ(select.where.column, "id");
+        EXPECT_EQ(select.where.literal.kind, advdb::SqlLiteral::Kind::Int);
+    }
+}
+
+TEST(SqlParserTest, ReportsSyntaxErrors) {
+    const std::string badSql = "SELECT FROM users;";
+
+    advdb::SqlLexer lexer(badSql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError error;
+    ASSERT_TRUE(lexer.tokenize(tokens, error));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    EXPECT_FALSE(parser.parse(stmt, error));
+    EXPECT_FALSE(error.message.empty());
+}
+

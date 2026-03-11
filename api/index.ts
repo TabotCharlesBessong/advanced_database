@@ -26,6 +26,10 @@ interface FilterRequest {
   value: string | number;
 }
 
+interface SqlRequest {
+  sql: string;
+}
+
 const repoRoot: string = existsSync(path.resolve(process.cwd(), 'build'))
   ? process.cwd()
   : path.resolve(process.cwd(), '..');
@@ -155,6 +159,23 @@ async function requestHandler(req: IncomingMessage, res: ServerResponse): Promis
     const result = runEngineCommand(['init', dbPath]);
     const payload = parseEngineJson(result.stdout);
     sendJson(res, result.status === 0 ? 200 : 500, payload);
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/sql') {
+    try {
+      const body = await parseJsonBody<SqlRequest>(req);
+      if (!body.sql || body.sql.trim().length === 0) {
+        sendJson(res, 400, { ok: false, error: 'SQL statement is required' });
+        return;
+      }
+
+      const result = runEngineCommand(['sql', dbPath, body.sql]);
+      const payload = parseEngineJson(result.stdout);
+      sendJson(res, result.status === 0 ? 200 : 400, payload);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body' });
+    }
     return;
   }
 
