@@ -9,6 +9,12 @@
 #include "FileManager.h"
 #include "Page.h"
 
+#include "Predicate.h"
+#include "RecordLayout.h"
+#include "SlottedPage.h"
+#include "TableHeap.h"
+#include "Value.h"
+
 namespace {
 
 std::string tempPath(const std::string& baseName) {
@@ -189,4 +195,192 @@ TEST(StorageTest, BufferPoolRespectsPinAndUsesLRU) {
 
     manager.close();
     cleanupFile(filePath);
+}
+
+// ---------------------------------------------------------------------------
+// Week 9-10 - CRUD tests
+// ---------------------------------------------------------------------------
+
+namespace {
+
+advdb::TableSchema makeUsersSchema() {
+    advdb::TableSchema schema;
+    schema.name = "users";
+    schema.columns = {
+        advdb::ColumnDefinition{"id",   advdb::ColumnType::Int,     0U,  false},
+        advdb::ColumnDefinition{"name", advdb::ColumnType::Varchar, 64U, false},
+        advdb::ColumnDefinition{"bio",  advdb::ColumnType::Text,    0U,  true}
+    };
+    return schema;
+}
+
+} // namespace
+
+TEST(RecordLayoutTest, EncodeDecodeRoundTrip) {
+    const advdb::TableSchema schema = makeUsersSchema();
+
+    advdb::Row row = {
+        advdb::Value::makeInt(42),
+        advdb::Value::makeString("Alice"),
+        advdb::Value::makeString("Hello world")
+    };
+
+    const std::vector<uint8_t> encoded = advdb::RecordLayout::encode(schema, row);
+    ASSERT_FALSE(encoded.empty());
+
+    advdb::Row decoded;
+    ASSERT_TRUE(advdb::RecordLayout::decode(schema, encoded, decoded));
+    ASSERT_EQ(decoded.size(), 3U);
+    EXPECT_EQ(decoded[0].intVal, 42);
+    EXPECT_EQ(decoded[1].strVal, "Alice");
+    EXPECT_EQ(decoded[2].strVal, "Hello world");
+}
+
+TEST(RecordLayoutTest, NullableRoundTrip) {
+    const advdb::TableSchema schema = makeUsersSchema();
+
+    advdb::Row row = {
+        advdb::Value::makeInt(7),
+        advdb::Value::makeString("Bob"),
+        advdb::Value::makeNull()
+    };
+
+    const std::vector<uint8_t> encoded = advdb::RecordLayout::encode(schema, row);
+    ASSERT_FALSE(encoded.empty());
+
+    advdb::Row decoded;
+    ASSERT_TRUE(advdb::RecordLayout::decode(schema, encoded, decoded));
+    EXPECT_TRUE(decoded[2].isNull());
+}
+
+TEST(SlottedPageTest, InsertAndRetrieve) {
+    advdb::Page page;
+    page.setPageId(0U);
+
+    advdb::SlottedPage sp(page);
+    sp.init();
+
+    const std::vector<uint8_t> data1 = {1, 2, 3};
+    const std::vector<uint8_t> data2 = {10, 20};
+
+    uint16_t slot1 = 99U;
+    uint16_t slot2 = 99U;
+    ASSERT_TRUE(sp.insertRecord(data1, slot1));
+    ASSERT_TRUE(sp.insertRecord(data2, slot2));
+    EXPECT_EQ(slot1, 0U);
+    EXPECT_EQ(slot2, 1U);
+    EXPECT_EQ(sp.numSlots(), 2U);
+
+    std::vector<uint8_t> out;
+    ASSERT_TRUE(sp.getRecord(0U, out));
+    EXPECT_EQ(out, data1);
+    ASSERT_TRUE(sp.getRecord(1U, out));
+    EXPECT_EQ(out, data2);
+
+    sp.commit();
+
+    advdb::SlottedPage sp2(page);
+    ASSERT_TRUE(sp2.load());
+    EXPECT_EQ(sp2.numSlots(), 2U);
+    ASSERT_TRUE(sp2.getRecord(0U, out));
+    EXPECT_EQ(out, data1);
+}
+
+TEST(CRUDTest, InsertAndSelectAll) {
+    const std::string dbPath = tempPath("crud_insert_select");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    const advdb::Row row1 = {
+        advdb::Value::makeInt(1),
+        advdb::Value::makeString("Alice"),
+        advdb::Value::makeNull()
+    };
+    const advdb::Row row2 = {
+        advdb::Value::makeInt(2),
+        advdb::Value::makeString("Bob"),
+        advdb::Value::makeString("backend dev")
+    };
+
+    ASSERT_TRUE(db.insertRow("users", row1, error)) << error;
+    ASSERT_TRUE(db.insertRow("users", row2, error)) << error;
+
+    std::vector<advdb::Row> rows;
+    ASSERT_TRUE(db.selectRows("users", {}, rows, error)) << error;
+    ASSERT_EQ(rows.size(), 2U);
+
+    EXPECT_EQ(rows[0][0].intVal, 1);
+    EXPECT_EQ(rows[0][1].strVal, "Alice");
+    EXPECT_TRUE(rows[0][2].isNull());
+
+    EXPECT_EQ(rows[1][0].intVal, 2);
+    EXPECT_EQ(rows[1][1].strVal, "Bob");
+    EXPECT_EQ(rows[1][2].strVal, "backend dev");
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+}
+
+TEST(CRUDTest, SelectWithWherePredicate) {
+    const std::string dbPath = tempPath("crud_where");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    for (int i = 1; i <= 5; ++i) {
+        const advdb::Row row = {
+            advdb::Value::makeInt(i),
+            advdb::Value::makeString("User" + std::to_string(i)),
+            advdb::Value::makeNull()
+        };
+        ASSERT_TRUE(db.insertRow("users", row, error)) << error;
+    }
+
+    advdb::Predicate pred;
+    pred.column = "id";
+    pred.op     = advdb::CompareOp::GT;
+    pred.value  = advdb::Value::makeInt(3);
+
+    std::vector<advdb::Row> rows;
+    ASSERT_TRUE(db.selectRows("users", {pred}, rows, error)) << error;
+    ASSERT_EQ(rows.size(), 2U);
+    EXPECT_EQ(rows[0][0].intVal, 4);
+    EXPECT_EQ(rows[1][0].intVal, 5);
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+}
+
+TEST(CRUDTest, NullabilityEnforced) {
+    const std::string dbPath = tempPath("crud_null");
+    cleanupFile(dbPath);
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    const advdb::Row badRow = {
+        advdb::Value::makeInt(1),
+        advdb::Value::makeNull(),
+        advdb::Value::makeNull()
+    };
+    EXPECT_FALSE(db.insertRow("users", badRow, error));
+
+    cleanupFile(dbPath);
 }
