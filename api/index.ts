@@ -16,6 +16,16 @@ interface CreateTableRequest {
   columns: ColumnRequest[];
 }
 
+interface RowInsertRequest {
+  values: Record<string, string | number | null>;
+}
+
+interface FilterRequest {
+  column: string;
+  op?: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte';
+  value: string | number;
+}
+
 const repoRoot: string = existsSync(path.resolve(process.cwd(), 'build'))
   ? process.cwd()
   : path.resolve(process.cwd(), '..');
@@ -74,6 +84,30 @@ function buildColumnSpec(columns: ColumnRequest[]): string {
 
       return `${column.name}:${normalizedType}${column.nullable ? '?' : ''}`;
     })
+    .join(',');
+}
+
+function formatScalar(value: string | number | null): string {
+  if (value === null) {
+    return 'null';
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return `'${value.replace(/'/g, "\\'")}'`;
+}
+
+function buildRowSpec(values: Record<string, string | number | null>): string {
+  return Object.entries(values)
+    .map(([column, value]) => `${column}=${formatScalar(value)}`)
+    .join(',');
+}
+
+function buildFilterSpec(filters: FilterRequest[]): string {
+  return filters
+    .map((filter) => `${filter.column}:${filter.op ?? 'eq'}:${formatScalar(filter.value)}`)
     .join(',');
 }
 
@@ -145,10 +179,54 @@ async function requestHandler(req: IncomingMessage, res: ServerResponse): Promis
   }
 
   if (method === 'GET' && requestUrl.pathname.startsWith('/tables/')) {
-    const tableName = decodeURIComponent(requestUrl.pathname.replace('/tables/', ''));
-    const result = runEngineCommand(['describe_table', dbPath, tableName]);
-    const payload = parseEngineJson(result.stdout);
-    sendJson(res, result.status === 0 ? 200 : 404, payload);
+    const pathParts = requestUrl.pathname.split('/').filter(Boolean);
+    const tableName = decodeURIComponent(pathParts[1] ?? '');
+
+    if (pathParts.length === 2) {
+      const result = runEngineCommand(['describe_table', dbPath, tableName]);
+      const payload = parseEngineJson(result.stdout);
+      sendJson(res, result.status === 0 ? 200 : 404, payload);
+      return;
+    }
+
+    if (pathParts.length === 3 && pathParts[2] === 'rows') {
+      const filterColumn = requestUrl.searchParams.get('column');
+      const filterValue = requestUrl.searchParams.get('value');
+      const filterOp = (requestUrl.searchParams.get('op') as FilterRequest['op'] | null) ?? 'eq';
+
+      const args = ['select', dbPath, tableName];
+      if (filterColumn && filterValue !== null) {
+        args.push(buildFilterSpec([{ column: filterColumn, op: filterOp, value: filterValue }]));
+      }
+
+      const result = runEngineCommand(args);
+      const payload = parseEngineJson(result.stdout);
+      sendJson(res, result.status === 0 ? 200 : 400, payload);
+      return;
+    }
+
+    sendJson(res, 404, { ok: false, error: 'Route not found' });
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname.startsWith('/tables/')) {
+    const pathParts = requestUrl.pathname.split('/').filter(Boolean);
+    const tableName = decodeURIComponent(pathParts[1] ?? '');
+
+    if (pathParts.length === 3 && pathParts[2] === 'rows') {
+      try {
+        const body = await parseJsonBody<RowInsertRequest>(req);
+        const rowSpec = buildRowSpec(body.values);
+        const result = runEngineCommand(['insert', dbPath, tableName, rowSpec]);
+        const payload = parseEngineJson(result.stdout);
+        sendJson(res, result.status === 0 ? 200 : 400, payload);
+      } catch {
+        sendJson(res, 400, { ok: false, error: 'Invalid JSON body' });
+      }
+      return;
+    }
+
+    sendJson(res, 404, { ok: false, error: 'Route not found' });
     return;
   }
 
