@@ -1,40 +1,166 @@
-import { spawn, ChildProcess } from 'child_process';
-import { existsSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { existsSync, mkdirSync } from 'fs';
+import http, { IncomingMessage, ServerResponse } from 'http';
 import path from 'path';
+import { URL } from 'url';
 
-// Basic Node.js API server placeholder
-console.log('Advanced Database API starting...');
+interface ColumnRequest {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  length?: number;
+}
+
+interface CreateTableRequest {
+  name: string;
+  columns: ColumnRequest[];
+}
 
 const repoRoot: string = existsSync(path.resolve(process.cwd(), 'build'))
   ? process.cwd()
   : path.resolve(process.cwd(), '..');
 
-const preferredBinaryName: string = process.env.DBCORE_BINARY ?? 'dbcore_engine';
-const fallbackBinaryName: string = 'dbcore_test';
+const dbDataDir: string = path.resolve(repoRoot, 'data');
+mkdirSync(dbDataDir, { recursive: true });
 
-const candidatePaths: string[] = [
-  path.resolve(repoRoot, 'build', 'engine', `${preferredBinaryName}.exe`),
-  path.resolve(repoRoot, 'build', 'engine', preferredBinaryName),
-  path.resolve(repoRoot, 'build', 'engine', `${fallbackBinaryName}.exe`),
-  path.resolve(repoRoot, 'build', 'engine', fallbackBinaryName)
-];
+const dbPath: string = process.env.DBCORE_DB_PATH ?? path.resolve(dbDataDir, 'advanced.db');
 
-const dbExecutablePath: string | undefined = candidatePaths.find((candidate) => existsSync(candidate));
-const dbArgs: string[] = (process.env.DBCORE_ARGS ?? '').trim() === ''
-  ? []
-  : (process.env.DBCORE_ARGS as string).split(' ');
+function resolveEngineBinary(): string | undefined {
+  const preferredBinaryName: string = process.env.DBCORE_BINARY ?? 'dbcore_engine';
+  const candidatePaths: string[] = [
+    path.resolve(repoRoot, 'build', 'engine', `${preferredBinaryName}.exe`),
+    path.resolve(repoRoot, 'build', 'engine', preferredBinaryName)
+  ];
 
-if (!dbExecutablePath) {
-  console.warn('No C++ database executable found. Build C++ targets first (cmake --build build).');
-} else {
-  console.log(`Launching C++ engine binary: ${dbExecutablePath}`);
-  const dbProcess: ChildProcess = spawn(dbExecutablePath, dbArgs, { stdio: 'inherit' });
+  return candidatePaths.find((candidate) => existsSync(candidate));
+}
 
-  dbProcess.on('error', (err: NodeJS.ErrnoException) => {
-    console.error(`Failed to start database process: ${err.message}`);
+function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
+  const responseBody = JSON.stringify(body);
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(responseBody)
   });
+  res.end(responseBody);
+}
 
-  dbProcess.on('close', (code: number | null) => {
-    console.log(`Database process exited with code ${code}`);
+function parseJsonBody<T>(req: IncomingMessage): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk: Buffer) => {
+      raw += chunk.toString('utf-8');
+    });
+
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(raw) as T);
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    req.on('error', reject);
   });
 }
+
+function buildColumnSpec(columns: ColumnRequest[]): string {
+  return columns
+    .map((column) => {
+      const normalizedType = column.type.toLowerCase();
+      if (normalizedType === 'varchar') {
+        const length = column.length ?? 255;
+        return `${column.name}:varchar(${length})${column.nullable ? '?' : ''}`;
+      }
+
+      return `${column.name}:${normalizedType}${column.nullable ? '?' : ''}`;
+    })
+    .join(',');
+}
+
+function runEngineCommand(args: string[]): { status: number; stdout: string; stderr: string } {
+  const binaryPath = resolveEngineBinary();
+  if (!binaryPath) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: 'C++ engine binary not found. Build using: cmake --build build --target dbcore_engine'
+    };
+  }
+
+  const result = spawnSync(binaryPath, args, { encoding: 'utf-8' });
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? ''
+  };
+}
+
+function parseEngineJson(stdout: string): unknown {
+  const trimmed = stdout.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: 'Empty response from C++ engine' };
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return { ok: false, error: `Invalid JSON from C++ engine: ${trimmed}` };
+  }
+}
+
+async function requestHandler(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const method = req.method ?? 'GET';
+  const requestUrl = new URL(req.url ?? '/', 'http://localhost');
+
+  if (method === 'GET' && requestUrl.pathname === '/health') {
+    sendJson(res, 200, { ok: true, service: 'advanced-database-api' });
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/init') {
+    const result = runEngineCommand(['init', dbPath]);
+    const payload = parseEngineJson(result.stdout);
+    sendJson(res, result.status === 0 ? 200 : 500, payload);
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/tables') {
+    try {
+      const body = await parseJsonBody<CreateTableRequest>(req);
+      const columnSpec = buildColumnSpec(body.columns);
+      const result = runEngineCommand(['create_table', dbPath, body.name, columnSpec]);
+      const payload = parseEngineJson(result.stdout);
+      sendJson(res, result.status === 0 ? 200 : 400, payload);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body' });
+    }
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/tables') {
+    const result = runEngineCommand(['list_tables', dbPath]);
+    const payload = parseEngineJson(result.stdout);
+    sendJson(res, result.status === 0 ? 200 : 500, payload);
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname.startsWith('/tables/')) {
+    const tableName = decodeURIComponent(requestUrl.pathname.replace('/tables/', ''));
+    const result = runEngineCommand(['describe_table', dbPath, tableName]);
+    const payload = parseEngineJson(result.stdout);
+    sendJson(res, result.status === 0 ? 200 : 404, payload);
+    return;
+  }
+
+  sendJson(res, 404, { ok: false, error: 'Route not found' });
+}
+
+const port = Number(process.env.PORT ?? 3000);
+const server = http.createServer((req, res) => {
+  void requestHandler(req, res);
+});
+
+server.listen(port, () => {
+  console.log(`Advanced Database API listening on http://localhost:${port}`);
+  console.log(`Database file path: ${dbPath}`);
+});
