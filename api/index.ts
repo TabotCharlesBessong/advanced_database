@@ -5,20 +5,30 @@ import path from 'path';
 // Basic Node.js API server placeholder
 console.log('Advanced Database API starting...');
 
-// Resolve dbcore_test path from likely locations whether API runs from repo root or api/
+const repoRoot: string = existsSync(path.resolve(process.cwd(), 'build'))
+  ? process.cwd()
+  : path.resolve(process.cwd(), '..');
+
+const preferredBinaryName: string = process.env.DBCORE_BINARY ?? 'dbcore_engine';
+const fallbackBinaryName: string = 'dbcore_test';
+
 const candidatePaths: string[] = [
-  path.resolve(process.cwd(), 'build', 'engine', 'dbcore_test.exe'),
-  path.resolve(process.cwd(), 'build', 'engine', 'dbcore_test'),
-  path.resolve(process.cwd(), '..', 'build', 'engine', 'dbcore_test.exe'),
-  path.resolve(process.cwd(), '..', 'build', 'engine', 'dbcore_test')
+  path.resolve(repoRoot, 'build', 'engine', `${preferredBinaryName}.exe`),
+  path.resolve(repoRoot, 'build', 'engine', preferredBinaryName),
+  path.resolve(repoRoot, 'build', 'engine', `${fallbackBinaryName}.exe`),
+  path.resolve(repoRoot, 'build', 'engine', fallbackBinaryName)
 ];
 
 const dbExecutablePath: string | undefined = candidatePaths.find((candidate) => existsSync(candidate));
+const dbArgs: string[] = (process.env.DBCORE_ARGS ?? '').trim() === ''
+  ? []
+  : (process.env.DBCORE_ARGS as string).split(' ');
 
 if (!dbExecutablePath) {
-  console.warn('dbcore_test executable not found. Build C++ engine first (cmake --build build).');
+  console.warn('No C++ database executable found. Build C++ targets first (cmake --build build).');
 } else {
-  const dbProcess: ChildProcess = spawn(dbExecutablePath, [], { stdio: 'inherit' });
+  console.log(`Launching C++ engine binary: ${dbExecutablePath}`);
+  const dbProcess: ChildProcess = spawn(dbExecutablePath, dbArgs, { stdio: 'inherit' });
 
   dbProcess.on('error', (err: NodeJS.ErrnoException) => {
     console.error(`Failed to start database process: ${err.message}`);
