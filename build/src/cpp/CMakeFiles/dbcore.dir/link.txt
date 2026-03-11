@@ -1,2 +1,0 @@
-C:\msys64\ucrt64\bin\ar.exe qc libdbcore.a CMakeFiles/dbcore.dir/Database.cpp.obj
-C:\msys64\ucrt64\bin\ranlib.exe libdbcore.a
