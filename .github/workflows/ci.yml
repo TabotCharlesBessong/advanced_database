@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, foundation ]
+  pull_request:
+    branches: [ main, foundation ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      run: cmake -S . -B build
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Test C++
+      run: ctest --test-dir build --output-on-failure
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install Node.js dependencies
+      run: npm install
+      working-directory: api
+
+    - name: Build TypeScript
+      run: npm run build
+      working-directory: api
+
+    - name: Test Node.js
+      run: npm test
+      working-directory: api
