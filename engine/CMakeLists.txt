@@ -1,6 +1,9 @@
 # C++ core engine configuration
 add_library(dbcore STATIC
     Database.cpp
+    Page.cpp
+    FileManager.cpp
+    BufferPool.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)
