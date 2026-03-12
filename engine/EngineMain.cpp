@@ -1,5 +1,8 @@
 #include "Database.h"
 #include "Predicate.h"
+#include "SqlAst.h"
+#include "SqlLexer.h"
+#include "SqlParser.h"
 #include "Value.h"
 
 #include <iostream>
@@ -225,6 +228,135 @@ std::string valueToJson(const advdb::Value& val, const advdb::ColumnDefinition& 
     return "\"" + jsonEscape(val.strVal) + "\"";
 }
 
+advdb::Value sqlLiteralToValue(const advdb::SqlLiteral& lit) {
+    switch (lit.kind) {
+        case advdb::SqlLiteral::Kind::Null:
+            return advdb::Value::makeNull();
+        case advdb::SqlLiteral::Kind::Int:
+            return advdb::Value::makeInt(lit.intValue);
+        case advdb::SqlLiteral::Kind::String:
+            return advdb::Value::makeString(lit.stringValue);
+    }
+    return advdb::Value::makeNull();
+}
+
+advdb::CompareOp sqlWhereToCompareOp(advdb::SqlWhereClause::Op op) {
+    switch (op) {
+        case advdb::SqlWhereClause::Op::Eq:
+            return advdb::CompareOp::EQ;
+        case advdb::SqlWhereClause::Op::Neq:
+            return advdb::CompareOp::NEQ;
+        case advdb::SqlWhereClause::Op::Lt:
+            return advdb::CompareOp::LT;
+        case advdb::SqlWhereClause::Op::Lte:
+            return advdb::CompareOp::LTE;
+        case advdb::SqlWhereClause::Op::Gt:
+            return advdb::CompareOp::GT;
+        case advdb::SqlWhereClause::Op::Gte:
+            return advdb::CompareOp::GTE;
+    }
+    return advdb::CompareOp::EQ;
+}
+
+bool executeSql(Database& db, const std::string& sql, std::string& outJson, std::string& error) {
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError lexError;
+    if (!lexer.tokenize(tokens, lexError)) {
+        error = "SQL lex error at " + std::to_string(lexError.line) + ":" + std::to_string(lexError.column) +
+                " - " + lexError.message;
+        return false;
+    }
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement statement;
+    advdb::SqlParseError parseError;
+    if (!parser.parse(statement, parseError)) {
+        error = "SQL parse error at " + std::to_string(parseError.line) + ":" + std::to_string(parseError.column) +
+                " - " + parseError.message;
+        return false;
+    }
+
+    if (std::holds_alternative<advdb::SqlCreateTableStatement>(statement)) {
+        const auto& create = std::get<advdb::SqlCreateTableStatement>(statement);
+        advdb::TableSchema schema;
+        schema.name = create.tableName;
+        for (const auto& c : create.columns) {
+            schema.columns.push_back(advdb::ColumnDefinition{c.name, c.type, c.varcharLength, c.nullable});
+        }
+        if (!db.createTable(schema, error)) {
+            return false;
+        }
+        outJson = "{\"ok\":true,\"statement\":\"create_table\",\"table\":\"" + jsonEscape(schema.name) + "\"}";
+        return true;
+    }
+
+    if (std::holds_alternative<advdb::SqlInsertStatement>(statement)) {
+        const auto& insert = std::get<advdb::SqlInsertStatement>(statement);
+
+        advdb::TableSchema schema;
+        if (!db.getTable(insert.tableName, schema, error)) {
+            return false;
+        }
+        if (insert.values.size() != schema.columns.size()) {
+            error = "INSERT values count does not match schema";
+            return false;
+        }
+
+        advdb::Row row;
+        row.reserve(insert.values.size());
+        for (const auto& lit : insert.values) {
+            row.push_back(sqlLiteralToValue(lit));
+        }
+
+        if (!db.insertRow(insert.tableName, row, error)) {
+            return false;
+        }
+        outJson = "{\"ok\":true,\"statement\":\"insert\",\"table\":\"" + jsonEscape(insert.tableName) + "\"}";
+        return true;
+    }
+
+    const auto& select = std::get<advdb::SqlSelectStatement>(statement);
+    std::vector<advdb::Predicate> predicates;
+    if (select.hasWhere) {
+        advdb::Predicate p;
+        p.column = select.where.column;
+        p.op = sqlWhereToCompareOp(select.where.op);
+        p.value = sqlLiteralToValue(select.where.literal);
+        predicates.push_back(p);
+    }
+
+    std::vector<advdb::Row> rows;
+    if (!db.selectRows(select.tableName, predicates, rows, error)) {
+        return false;
+    }
+
+    advdb::TableSchema schema;
+    if (!db.getTable(select.tableName, schema, error)) {
+        return false;
+    }
+
+    std::ostringstream oss;
+    oss << "{\"ok\":true,\"statement\":\"select\",\"rows\":[";
+    for (std::size_t r = 0; r < rows.size(); ++r) {
+        if (r > 0U) {
+            oss << ',';
+        }
+        oss << '{';
+        for (std::size_t c = 0; c < schema.columns.size(); ++c) {
+            if (c > 0U) {
+                oss << ',';
+            }
+            oss << '"' << jsonEscape(schema.columns[c].name) << "\":"
+                << valueToJson(rows[r][c], schema.columns[c]);
+        }
+        oss << '}';
+    }
+    oss << "]}";
+    outJson = oss.str();
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -399,6 +531,25 @@ int main(int argc, char** argv) {
             std::cout << '}';
         }
         std::cout << "]}" << std::endl;
+        return 0;
+    }
+
+    // ---- sql ---------------------------------------------------------------
+    // Usage: dbcore_engine sql <dbPath> "<SQL statement>;"
+    if (command == "sql") {
+        if (argc < 4) {
+            std::cout << R"({"ok":false,"error":"sql requires a SQL statement argument"})" << std::endl;
+            return 1;
+        }
+
+        std::string outJson;
+        std::string error;
+        if (!executeSql(db, argv[3], outJson, error)) {
+            std::cout << "{\"ok\":false,\"error\":\"" << jsonEscape(error) << "\"}" << std::endl;
+            return 1;
+        }
+
+        std::cout << outJson << std::endl;
         return 0;
     }
 
