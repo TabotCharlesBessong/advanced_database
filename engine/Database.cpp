@@ -65,6 +65,70 @@ std::vector<std::string> Database::listTables() const {
     return catalog_.listTables();
 }
 
+bool Database::insertRow(const std::string& tableName, const advdb::Row& row, std::string& error) {
+    advdb::TableSchema schema;
+    if (!catalog_.getTable(tableName, schema, error)) {
+        return false;
+    }
+
+    if (row.size() != schema.columns.size()) {
+        error = "Row has " + std::to_string(row.size()) + " values but table has " +
+                std::to_string(schema.columns.size()) + " columns";
+        return false;
+    }
+
+    // Validate nullability constraints.
+    for (std::size_t i = 0u; i < schema.columns.size(); ++i) {
+        if (row[i].isNull() && !schema.columns[i].nullable) {
+            error = "Column '" + schema.columns[i].name + "' is NOT NULL";
+            return false;
+        }
+    }
+
+    const std::string heapPath = dbPath_ + "." + tableName + ".heap";
+    advdb::TableHeap heap(heapPath);
+    if (!heap.open()) {
+        error = "Failed to open heap file for table: " + tableName;
+        return false;
+    }
+
+    advdb::RecordId rid;
+    if (!heap.insertRow(schema, row, rid)) {
+        error = "Failed to insert row into heap";
+        return false;
+    }
+
+    return true;
+}
+
+bool Database::selectRows(const std::string& tableName,
+                           const std::vector<advdb::Predicate>& predicates,
+                           std::vector<advdb::Row>& outRows,
+                           std::string& error) {
+    advdb::TableSchema schema;
+    if (!catalog_.getTable(tableName, schema, error)) {
+        return false;
+    }
+
+    const std::string heapPath = dbPath_ + "." + tableName + ".heap";
+    advdb::TableHeap heap(heapPath);
+    if (!heap.open()) {
+        // No rows yet (heap file not created).
+        outRows.clear();
+        return true;
+    }
+
+    outRows.clear();
+    heap.scanAll(schema, [&](const advdb::RecordId& /*rid*/, const advdb::Row& row) -> bool {
+        if (evaluatePredicates(predicates, row, schema)) {
+            outRows.push_back(row);
+        }
+        return true; // continue scanning
+    });
+
+    return true;
+}
+
 bool Database::isValidIdentifier(const std::string& value) {
     static const std::regex kIdentifierPattern("^[A-Za-z_][A-Za-z0-9_]*$");
     return std::regex_match(value, kIdentifierPattern);

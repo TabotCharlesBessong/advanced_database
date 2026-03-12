@@ -5,6 +5,11 @@ add_library(dbcore STATIC
     Page.cpp
     FileManager.cpp
     BufferPool.cpp
+    RecordLayout.cpp
+    SlottedPage.cpp
+    TableHeap.cpp
+    SqlLexer.cpp
+    SqlParser.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)
