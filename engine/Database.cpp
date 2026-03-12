@@ -131,6 +131,7 @@ bool Database::selectRowsProjected(const std::string& tableName,
         return false;
     }
 
+<<<<<<< HEAD
     // Validate projection columns against the schema up front so that unknown
     // column names are rejected even when the heap file does not exist yet.
     std::vector<advdb::ColumnDefinition> projectedColumns;
@@ -149,6 +150,62 @@ bool Database::selectRowsProjected(const std::string& tableName,
         }
     } else {
         projectedColumns = schema.columns;
+=======
+    std::vector<std::size_t> projectionIndices;
+    if (projectionColumns.empty()) {
+        outColumns = schema.columns;
+    } else {
+        outColumns.clear();
+        projectionIndices.reserve(projectionColumns.size());
+        for (const std::string& projectionColumn : projectionColumns) {
+            std::size_t idx = schema.columns.size();
+            for (std::size_t i = 0; i < schema.columns.size(); ++i) {
+                if (schema.columns[i].name == projectionColumn) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx == schema.columns.size()) {
+                error = "Unknown projection column: " + projectionColumn;
+                return false;
+            }
+            projectionIndices.push_back(idx);
+            outColumns.push_back(schema.columns[idx]);
+        }
+    }
+
+    bool usedIndex = false;
+    std::vector<advdb::Row> indexedRows;
+    if (!predicates.empty()) {
+        if (!indexManager_.tryIndexLookup(tableName, schema, predicates, indexedRows, usedIndex, error)) {
+            return false;
+        }
+    }
+
+    if (usedIndex) {
+        outRows.clear();
+        for (const advdb::Row& row : indexedRows) {
+            if (!advdb::evaluatePredicates(predicates, row, schema)) {
+                continue;
+            }
+
+            if (projectionColumns.empty()) {
+                outRows.push_back(row);
+            } else {
+                advdb::Row projected;
+                projected.reserve(projectionIndices.size());
+                for (std::size_t idx : projectionIndices) {
+                    if (idx >= row.size()) {
+                        error = "Index row projection failed: index out of range";
+                        return false;
+                    }
+                    projected.push_back(row[idx]);
+                }
+                outRows.push_back(std::move(projected));
+            }
+        }
+        return true;
+>>>>>>> da67f51 (Add IndexManager integration to Database class; implement createIndex method and update initialization)
     }
 
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
@@ -156,7 +213,10 @@ bool Database::selectRowsProjected(const std::string& tableName,
     if (!heap.open()) {
         // No rows yet (heap file may not exist).
         outRows.clear();
+<<<<<<< HEAD
         outColumns = projectedColumns;
+=======
+>>>>>>> da67f51 (Add IndexManager integration to Database class; implement createIndex method and update initialization)
         return true;
     }
 
