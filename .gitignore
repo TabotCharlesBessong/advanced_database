@@ -49,3 +49,4 @@ node_modules
 /api/dist/
 *.heap
 *.db
+
