@@ -4,8 +4,10 @@
 #include <vector>
 
 #include "CatalogTypes.h"
+#include "IndexManager.h"
 #include "QueryExecution.h"
 #include "TableCatalog.h"
+#include "TransactionManager.h"
 
 #include "Predicate.h"
 #include "TableHeap.h"
@@ -37,10 +39,23 @@ public:
                             std::vector<advdb::ColumnDefinition>& outColumns,
                             std::string& error);
 
+    bool createIndex(const std::string& tableName,
+                     const std::string& columnName,
+                     std::string& error);
+
+    bool beginTransaction(std::string& error);
+    bool commitTransaction(std::string& error);
+    bool rollbackTransaction(std::string& error);
+    bool inTransaction() const;
+
 private:
     static bool isValidIdentifier(const std::string& value);
     static bool validateSchema(const advdb::TableSchema& schema, std::string& error);
 
+    bool insertRowDirect(const std::string& tableName, const advdb::Row& row, std::string& error);
+
     std::string dbPath_;
     advdb::TableCatalog catalog_;
+    advdb::IndexManager indexManager_;
+    advdb::TransactionManager transactionManager_;
 };

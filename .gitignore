@@ -47,6 +47,7 @@ node_modules
 # Build and generated artifacts
 /build/
 /api/dist/
-*.heap
-*.db
 
+# Database test artifacts
+*.heap
+*.catalog

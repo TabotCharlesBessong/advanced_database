@@ -13,6 +13,9 @@ add_library(dbcore STATIC
     SqlParser.cpp
     Statistics.cpp
     QueryPlanner.cpp
+    BTreeIndex.cpp
+    IndexManager.cpp
+    TransactionManager.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)

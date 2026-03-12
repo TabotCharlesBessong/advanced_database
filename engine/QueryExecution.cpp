@@ -8,6 +8,9 @@ namespace advdb {
 ScanOperator::ScanOperator(TableHeap& heap, const TableSchema& schema)
     : heap_(heap), schema_(schema) {}
 
+IndexScanOperator::IndexScanOperator(std::vector<Row> rows)
+    : rows_(std::move(rows)) {}
+
 bool ScanOperator::open(std::string& error) {
     rows_.clear();
     index_ = 0;
@@ -34,6 +37,24 @@ bool ScanOperator::next(Row& outRow, std::string&) {
 
 void ScanOperator::close() {
     rows_.clear();
+    index_ = 0;
+}
+
+bool IndexScanOperator::open(std::string&) {
+    index_ = 0;
+    return true;
+}
+
+bool IndexScanOperator::next(Row& outRow, std::string&) {
+    if (index_ >= rows_.size()) {
+        return false;
+    }
+
+    outRow = rows_[index_++];
+    return true;
+}
+
+void IndexScanOperator::close() {
     index_ = 0;
 }
 

@@ -13,6 +13,7 @@ namespace advdb {
 
 enum class PlanNodeType {
     Scan,
+    IndexScan,
     Filter,
     Project,
     Join,
@@ -47,6 +48,20 @@ public:
 private:
     TableHeap& heap_;
     const TableSchema& schema_;
+    std::vector<Row> rows_;
+    std::size_t index_{0};
+};
+
+// Week 19-20: Index scan operator (consumes pre-fetched index rows).
+class IndexScanOperator final : public IOperator {
+public:
+    explicit IndexScanOperator(std::vector<Row> rows);
+
+    bool open(std::string& error) override;
+    bool next(Row& outRow, std::string& error) override;
+    void close() override;
+
+private:
     std::vector<Row> rows_;
     std::size_t index_{0};
 };
