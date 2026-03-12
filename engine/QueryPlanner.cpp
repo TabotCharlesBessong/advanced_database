@@ -201,8 +201,8 @@ std::vector<SqlJoinClause> QueryPlanner::findBestJoinOrder(
     for (std::size_t i = 0; i < remainingJoins.size(); ++i) {
         const SqlJoinClause& join = remainingJoins[i];
 
-        // Check if this join's left table is already in usedTables
-        bool leftTableUsed = std::find(usedTables.begin(), usedTables.end(), join.joinTable) != usedTables.end();
+        // Check if this join's left (driving) table is already in usedTables
+        bool leftTableUsed = std::find(usedTables.begin(), usedTables.end(), join.leftTable) != usedTables.end();
 
         if (!leftTableUsed) {
             continue;  // Skip joins that cannot be performed yet
