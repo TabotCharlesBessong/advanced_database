@@ -39,7 +39,7 @@ TEST(DatabaseTest, Initialization) {
 
     Database db(dbPath);
     EXPECT_TRUE(db.initialize());
-    EXPECT_EQ(db.getVersion(), "0.2.0");
+    EXPECT_EQ(db.getVersion(), "0.3.0");
 
     cleanupFile(dbPath);
 }
@@ -846,5 +846,129 @@ TEST(QueryPlannerTest, OptimizeJoinOrderWithEmptyJoins) {
     auto optimized = planner.optimizeJoinOrder("base_table", joins);
     
     EXPECT_TRUE(optimized.empty());
+}
+
+TEST(IndexTest, CreateIndexAndPointLookup) {
+    const std::string dbPath = tempPath("index_point_lookup");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+    std::remove((dbPath + ".users.id.idx").c_str());
+    std::remove((dbPath + ".indexes.meta").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    advdb::TableSchema schema;
+    schema.name = "users";
+    schema.columns = {
+        advdb::ColumnDefinition{"id", advdb::ColumnType::Int, 0U, false},
+        advdb::ColumnDefinition{"name", advdb::ColumnType::Text, 0U, false}
+    };
+
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(1), advdb::Value::makeString("alice")}, error));
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(2), advdb::Value::makeString("bob")}, error));
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(3), advdb::Value::makeString("carol")}, error));
+
+    ASSERT_TRUE(db.createIndex("users", "id", error));
+
+    std::vector<advdb::Predicate> predicates{
+        advdb::Predicate{"id", advdb::CompareOp::EQ, advdb::Value::makeInt(2)}
+    };
+    std::vector<advdb::Row> rows;
+
+    ASSERT_TRUE(db.selectRows("users", predicates, rows, error));
+    ASSERT_EQ(rows.size(), 1U);
+    ASSERT_EQ(rows[0].size(), 2U);
+    EXPECT_TRUE(rows[0][0].isInt());
+    EXPECT_EQ(rows[0][0].intVal, 2);
+    EXPECT_TRUE(rows[0][1].isString());
+    EXPECT_EQ(rows[0][1].strVal, "bob");
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+    std::remove((dbPath + ".users.id.idx").c_str());
+    std::remove((dbPath + ".indexes.meta").c_str());
+}
+
+TEST(IndexTest, RangeScanLookup) {
+    const std::string dbPath = tempPath("index_range_lookup");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".metrics.heap").c_str());
+    std::remove((dbPath + ".metrics.score.idx").c_str());
+    std::remove((dbPath + ".indexes.meta").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    advdb::TableSchema schema;
+    schema.name = "metrics";
+    schema.columns = {
+        advdb::ColumnDefinition{"id", advdb::ColumnType::Int, 0U, false},
+        advdb::ColumnDefinition{"score", advdb::ColumnType::Int, 0U, false}
+    };
+
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+    ASSERT_TRUE(db.insertRow("metrics", {advdb::Value::makeInt(1), advdb::Value::makeInt(10)}, error));
+    ASSERT_TRUE(db.insertRow("metrics", {advdb::Value::makeInt(2), advdb::Value::makeInt(20)}, error));
+    ASSERT_TRUE(db.insertRow("metrics", {advdb::Value::makeInt(3), advdb::Value::makeInt(30)}, error));
+    ASSERT_TRUE(db.insertRow("metrics", {advdb::Value::makeInt(4), advdb::Value::makeInt(40)}, error));
+
+    ASSERT_TRUE(db.createIndex("metrics", "score", error));
+
+    std::vector<advdb::Predicate> predicates{
+        advdb::Predicate{"score", advdb::CompareOp::GTE, advdb::Value::makeInt(30)}
+    };
+    std::vector<advdb::Row> rows;
+
+    ASSERT_TRUE(db.selectRows("metrics", predicates, rows, error));
+    ASSERT_EQ(rows.size(), 2U);
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".metrics.heap").c_str());
+    std::remove((dbPath + ".metrics.score.idx").c_str());
+    std::remove((dbPath + ".indexes.meta").c_str());
+}
+
+TEST(IndexTest, IndexMaintainedAfterInsert) {
+    const std::string dbPath = tempPath("index_insert_maintenance");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".orders.heap").c_str());
+    std::remove((dbPath + ".orders.order_id.idx").c_str());
+    std::remove((dbPath + ".indexes.meta").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    advdb::TableSchema schema;
+    schema.name = "orders";
+    schema.columns = {
+        advdb::ColumnDefinition{"order_id", advdb::ColumnType::Int, 0U, false},
+        advdb::ColumnDefinition{"customer", advdb::ColumnType::Text, 0U, false}
+    };
+
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+    ASSERT_TRUE(db.insertRow("orders", {advdb::Value::makeInt(10), advdb::Value::makeString("a")}, error));
+    ASSERT_TRUE(db.createIndex("orders", "order_id", error));
+
+    ASSERT_TRUE(db.insertRow("orders", {advdb::Value::makeInt(11), advdb::Value::makeString("b")}, error));
+
+    std::vector<advdb::Predicate> predicates{
+        advdb::Predicate{"order_id", advdb::CompareOp::EQ, advdb::Value::makeInt(11)}
+    };
+    std::vector<advdb::Row> rows;
+
+    ASSERT_TRUE(db.selectRows("orders", predicates, rows, error));
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows[0][0].intVal, 11);
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".orders.heap").c_str());
+    std::remove((dbPath + ".orders.order_id.idx").c_str());
+    std::remove((dbPath + ".indexes.meta").c_str());
 }
 

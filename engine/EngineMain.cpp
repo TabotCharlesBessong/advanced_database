@@ -232,6 +232,8 @@ std::string planNodeTypeToString(advdb::PlanNodeType type) {
     switch (type) {
         case advdb::PlanNodeType::Scan:
             return "scan";
+        case advdb::PlanNodeType::IndexScan:
+            return "IndexScan";
         case advdb::PlanNodeType::Filter:
             return "filter";
         case advdb::PlanNodeType::Project:
