@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <unordered_map>
 #include <unordered_set>
 
 Database::Database(const std::string& dbPath)
@@ -130,60 +131,24 @@ bool Database::selectRowsProjected(const std::string& tableName,
         return false;
     }
 
-    std::vector<std::size_t> projectionIndices;
-    if (projectionColumns.empty()) {
-        outColumns = schema.columns;
-    } else {
-        outColumns.clear();
-        projectionIndices.reserve(projectionColumns.size());
-        for (const std::string& projectionColumn : projectionColumns) {
-            std::size_t idx = schema.columns.size();
-            for (std::size_t i = 0; i < schema.columns.size(); ++i) {
-                if (schema.columns[i].name == projectionColumn) {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx == schema.columns.size()) {
-                error = "Unknown projection column: " + projectionColumn;
+    // Validate projection columns against the schema up front so that unknown
+    // column names are rejected even when the heap file does not exist yet.
+    std::vector<advdb::ColumnDefinition> projectedColumns;
+    if (!projectionColumns.empty()) {
+        std::unordered_map<std::string, std::size_t> indexMap;
+        for (std::size_t i = 0; i < schema.columns.size(); ++i) {
+            indexMap[schema.columns[i].name] = i;
+        }
+        for (const std::string& colName : projectionColumns) {
+            const auto it = indexMap.find(colName);
+            if (it == indexMap.end()) {
+                error = "Unknown projection column: " + colName;
                 return false;
             }
-            projectionIndices.push_back(idx);
-            outColumns.push_back(schema.columns[idx]);
+            projectedColumns.push_back(schema.columns[it->second]);
         }
-    }
-
-    bool usedIndex = false;
-    std::vector<advdb::Row> indexedRows;
-    if (!predicates.empty()) {
-        if (!indexManager_.tryIndexLookup(tableName, schema, predicates, indexedRows, usedIndex, error)) {
-            return false;
-        }
-    }
-
-    if (usedIndex) {
-        outRows.clear();
-        for (const advdb::Row& row : indexedRows) {
-            if (!advdb::evaluatePredicates(predicates, row, schema)) {
-                continue;
-            }
-
-            if (projectionColumns.empty()) {
-                outRows.push_back(row);
-            } else {
-                advdb::Row projected;
-                projected.reserve(projectionIndices.size());
-                for (std::size_t idx : projectionIndices) {
-                    if (idx >= row.size()) {
-                        error = "Index row projection failed: index out of range";
-                        return false;
-                    }
-                    projected.push_back(row[idx]);
-                }
-                outRows.push_back(std::move(projected));
-            }
-        }
-        return true;
+    } else {
+        projectedColumns = schema.columns;
     }
 
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
@@ -191,6 +156,7 @@ bool Database::selectRowsProjected(const std::string& tableName,
     if (!heap.open()) {
         // No rows yet (heap file may not exist).
         outRows.clear();
+        outColumns = projectedColumns;
         return true;
     }
 
