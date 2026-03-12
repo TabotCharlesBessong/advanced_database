@@ -139,9 +139,12 @@ bool SqlParser::parseSelect(SqlStatement& outStatement, SqlParseError& error) {
     stmt.tableName = previous().lexeme;
 
     // Parse JOINs (Week 15-16)
+    // Track the current left-side table so each join clause knows its driving table.
+    std::string currentLeftTable = stmt.tableName;
     while (match(SqlTokenType::Join) || check(SqlTokenType::Inner) || check(SqlTokenType::Left) || check(SqlTokenType::Right)) {
         // Handle JOIN modifiers (INNER, LEFT, RIGHT)
         SqlJoinClause join;
+        join.leftTable = currentLeftTable;
         
         if (match(SqlTokenType::Inner)) {
             join.type = SqlJoinClause::Type::Inner;
@@ -184,6 +187,7 @@ bool SqlParser::parseSelect(SqlStatement& outStatement, SqlParseError& error) {
         }
         join.rightColumn = previous().lexeme;
 
+        currentLeftTable = join.joinTable;
         stmt.joins.push_back(join);
     }
 

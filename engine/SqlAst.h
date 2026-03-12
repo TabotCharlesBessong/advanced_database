@@ -28,6 +28,7 @@ struct SqlJoinClause {
     enum class Type { Inner, Left, Right };
 
     Type type{Type::Inner};
+    std::string leftTable;    // driving/left-side table for this join
     std::string joinTable;
     std::string leftColumn;
     std::string rightColumn;  // from join table

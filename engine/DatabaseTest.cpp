@@ -594,9 +594,32 @@ TEST(SqlParserTest, ParseJoinClause) {
     const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
     EXPECT_EQ(select.tableName, "users");
     ASSERT_EQ(select.joins.size(), 1U);
+    EXPECT_EQ(select.joins[0].leftTable, "users");
     EXPECT_EQ(select.joins[0].joinTable, "orders");
     EXPECT_EQ(select.joins[0].leftColumn, "id");
     EXPECT_EQ(select.joins[0].rightColumn, "user_id");
+}
+
+TEST(SqlParserTest, ParseChainedJoinClauses) {
+    // Verifies that leftTable propagates correctly across chained JOINs
+    const std::string sql = "SELECT * FROM a JOIN b ON a_id = b_id JOIN c ON b_id = c_id;";
+
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError lexErr;
+    ASSERT_TRUE(lexer.tokenize(tokens, lexErr));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    advdb::SqlParseError parseErr;
+    ASSERT_TRUE(parser.parse(stmt, parseErr));
+
+    const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
+    ASSERT_EQ(select.joins.size(), 2U);
+    EXPECT_EQ(select.joins[0].leftTable, "a");
+    EXPECT_EQ(select.joins[0].joinTable, "b");
+    EXPECT_EQ(select.joins[1].leftTable, "b");
+    EXPECT_EQ(select.joins[1].joinTable, "c");
 }
 
 TEST(SqlParserTest, ParseGroupByClause) {
@@ -877,5 +900,32 @@ TEST(QueryPlannerTest, OptimizeJoinOrderWithEmptyJoins) {
     auto optimized = planner.optimizeJoinOrder("base_table", joins);
     
     EXPECT_TRUE(optimized.empty());
+}
+
+TEST(QueryPlannerTest, OptimizeJoinOrderPreservesEligibleJoins) {
+    // Verify that joins whose left table is in usedTables are scheduled,
+    // and that the result contains all provided joins.
+    advdb::Statistics stats;
+    advdb::QueryPlanner planner(stats);
+
+    advdb::SqlJoinClause j1;
+    j1.leftTable = "base_table";
+    j1.joinTable = "orders";
+    j1.leftColumn = "id";
+    j1.rightColumn = "user_id";
+
+    advdb::SqlJoinClause j2;
+    j2.leftTable = "orders";
+    j2.joinTable = "items";
+    j2.leftColumn = "order_id";
+    j2.rightColumn = "order_id";
+
+    std::vector<advdb::SqlJoinClause> joins = {j1, j2};
+    auto optimized = planner.optimizeJoinOrder("base_table", joins);
+
+    ASSERT_EQ(optimized.size(), 2U);
+    // j1 must come first because its left table is the base table
+    EXPECT_EQ(optimized[0].joinTable, "orders");
+    EXPECT_EQ(optimized[1].joinTable, "items");
 }
 
