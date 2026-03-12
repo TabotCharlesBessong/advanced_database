@@ -655,7 +655,6 @@ TEST(QueryExecutionTest, SortOperatorOrdering) {
 
     advdb::SortOperator::SortKey key{"points", true};  // DESC
     
-    advdb::ScanOperator scan(heap, schema);
     advdb::SortOperator sort(std::make_unique<advdb::ScanOperator>(heap, schema), schema, {key});
     
     std::string sortError;
