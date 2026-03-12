@@ -37,7 +37,21 @@ enum class SqlTokenType {
     Text,
     Varchar,
     Null,
-    Not
+    Not,
+    Join,
+    Inner,
+    Left,
+    Right,
+    On,
+    Group,
+    By,
+    Having,
+    Order,
+    Asc,
+    Desc,
+    Count,
+    Sum,
+    Avg
 };
 
 struct SqlToken {

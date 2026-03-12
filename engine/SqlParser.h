@@ -18,6 +18,11 @@ private:
     bool parseInsert(SqlStatement& outStatement, SqlParseError& error);
     bool parseSelect(SqlStatement& outStatement, SqlParseError& error);
 
+    bool parseJoinClause(SqlJoinClause& outJoin, SqlParseError& error) = delete;
+    bool parseGroupByClause(SqlGroupByClause& outGroupBy, SqlParseError& error) = delete;
+    bool parseHavingClause(SqlHavingClause& outHaving, SqlParseError& error) = delete;
+    bool parseOrderByClause(SqlOrderByClause& outOrderBy, SqlParseError& error) = delete;
+
     bool parseColumnType(ColumnType& outType, std::uint32_t& outVarcharLength, SqlParseError& error);
     bool parseLiteral(SqlLiteral& outLiteral, SqlParseError& error);
 

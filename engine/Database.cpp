@@ -105,6 +105,16 @@ bool Database::selectRows(const std::string& tableName,
                            const std::vector<advdb::Predicate>& predicates,
                            std::vector<advdb::Row>& outRows,
                            std::string& error) {
+    std::vector<advdb::ColumnDefinition> outColumns;
+    return selectRowsProjected(tableName, predicates, {}, outRows, outColumns, error);
+}
+
+bool Database::selectRowsProjected(const std::string& tableName,
+                                   const std::vector<advdb::Predicate>& predicates,
+                                   const std::vector<std::string>& projectionColumns,
+                                   std::vector<advdb::Row>& outRows,
+                                   std::vector<advdb::ColumnDefinition>& outColumns,
+                                   std::string& error) {
     advdb::TableSchema schema;
     if (!catalog_.getTable(tableName, schema, error)) {
         return false;
@@ -113,20 +123,14 @@ bool Database::selectRows(const std::string& tableName,
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
     advdb::TableHeap heap(heapPath);
     if (!heap.open()) {
-        // No rows yet (heap file not created).
+        // No rows yet (heap file may not exist).
         outRows.clear();
+        outColumns = projectionColumns.empty() ? schema.columns : std::vector<advdb::ColumnDefinition>{};
         return true;
     }
 
-    outRows.clear();
-    heap.scanAll(schema, [&](const advdb::RecordId& /*rid*/, const advdb::Row& row) -> bool {
-        if (evaluatePredicates(predicates, row, schema)) {
-            outRows.push_back(row);
-        }
-        return true; // continue scanning
-    });
-
-    return true;
+    advdb::ExecutionEngine engine;
+    return engine.executeSelect(heap, schema, predicates, projectionColumns, outRows, outColumns, error);
 }
 
 bool Database::isValidIdentifier(const std::string& value) {

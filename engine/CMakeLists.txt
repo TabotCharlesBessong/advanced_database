@@ -8,8 +8,11 @@ add_library(dbcore STATIC
     RecordLayout.cpp
     SlottedPage.cpp
     TableHeap.cpp
+    QueryExecution.cpp
     SqlLexer.cpp
     SqlParser.cpp
+    Statistics.cpp
+    QueryPlanner.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)

@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "CatalogTypes.h"
+#include "QueryExecution.h"
 #include "TableCatalog.h"
 
 #include "Predicate.h"
@@ -28,6 +29,13 @@ public:
                     const std::vector<advdb::Predicate>& predicates,
                     std::vector<advdb::Row>& outRows,
                     std::string& error);
+
+    bool selectRowsProjected(const std::string& tableName,
+                            const std::vector<advdb::Predicate>& predicates,
+                            const std::vector<std::string>& projectionColumns,
+                            std::vector<advdb::Row>& outRows,
+                            std::vector<advdb::ColumnDefinition>& outColumns,
+                            std::string& error);
 
 private:
     static bool isValidIdentifier(const std::string& value);

@@ -24,6 +24,32 @@ struct SqlWhereClause {
     SqlLiteral literal;
 };
 
+struct SqlJoinClause {
+    enum class Type { Inner, Left, Right };
+
+    Type type{Type::Inner};
+    std::string joinTable;
+    std::string leftColumn;
+    std::string rightColumn;  // from join table
+};
+
+struct SqlGroupByClause {
+    std::vector<std::string> columns;
+};
+
+struct SqlHavingClause {
+    std::string aggregateFunc;  // e.g., "COUNT", "SUM", "AVG"
+    std::string aggregateColumn;  // column being aggregated
+    SqlWhereClause::Op op{SqlWhereClause::Op::Eq};
+    SqlLiteral value;
+};
+
+struct SqlOrderByClause {
+    enum class Direction { Asc, Desc };
+
+    std::vector<std::pair<std::string, Direction>> columns;
+};
+
 struct SqlCreateColumn {
     std::string name;
     ColumnType type{ColumnType::Int};
@@ -47,6 +73,15 @@ struct SqlSelectStatement {
     bool selectAll{false};
     bool hasWhere{false};
     SqlWhereClause where;
+    
+    // Week 15-16: Advanced SQL Features
+    std::vector<SqlJoinClause> joins;
+    bool hasGroupBy{false};
+    SqlGroupByClause groupBy;
+    bool hasHaving{false};
+    SqlHavingClause having;
+    bool hasOrderBy{false};
+    SqlOrderByClause orderBy;
 };
 
 using SqlStatement = std::variant<SqlCreateTableStatement, SqlInsertStatement, SqlSelectStatement>;

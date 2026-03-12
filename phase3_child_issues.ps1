@@ -1,0 +1,23 @@
+$repo='https://github.com/TabotCharlesBessong/advanced_database'
+$issues=@(
+[pscustomobject]@{title='P3 W13-14: Implement query execution framework'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 13-14: Query Execution Engine`n`n## Objective`nImplement query execution framework.`n`n## Acceptance Criteria`n- Execution framework composes operators correctly`n- End-to-end execution tests pass for representative queries'}
+[pscustomobject]@{title='P3 W13-14: Create iterator-based execution model'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 13-14: Query Execution Engine`n`n## Objective`nCreate iterator-based execution model.`n`n## Acceptance Criteria`n- Volcano-style operator lifecycle is implemented (open/next/close)`n- Iterator pipeline tests pass'}
+[pscustomobject]@{title='P3 W13-14: Support projection and filtering operations'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 13-14: Query Execution Engine`n`n## Objective`nSupport projection and filtering operations.`n`n## Acceptance Criteria`n- SELECT projection returns expected columns and order`n- WHERE filtering returns correct result subsets'}
+[pscustomobject]@{title='P3 W13-14: Build execution plan representation'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 13-14: Query Execution Engine`n`n## Objective`nBuild execution plan representation.`n`n## Acceptance Criteria`n- Plan tree captures scan/filter/project structure`n- Plan output can be serialized for inspection'}
+[pscustomobject]@{title='P3 W15-16: Implement JOIN operations'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 15-16: Advanced SQL Features`n`n## Objective`nImplement JOIN operations.`n`n## Acceptance Criteria`n- At least one join algorithm (nested loop) is available`n- Join correctness tests pass for inner joins'}
+[pscustomobject]@{title='P3 W15-16: Support aggregate functions (COUNT, SUM, AVG)'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 15-16: Advanced SQL Features`n`n## Objective`nSupport aggregate functions (COUNT, SUM, AVG).`n`n## Acceptance Criteria`n- Aggregates return correct values for grouped and ungrouped input`n- Aggregate edge cases are tested'}
+[pscustomobject]@{title='P3 W15-16: Add GROUP BY and HAVING clauses'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 15-16: Advanced SQL Features`n`n## Objective`nAdd GROUP BY and HAVING clauses.`n`n## Acceptance Criteria`n- Grouping partitions rows correctly`n- HAVING filters groups using aggregate predicates'}
+[pscustomobject]@{title='P3 W15-16: Implement ORDER BY sorting'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 15-16: Advanced SQL Features`n`n## Objective`nImplement ORDER BY sorting.`n`n## Acceptance Criteria`n- ORDER BY sorts on one and multiple keys`n- ASC and DESC behavior is validated by tests'}
+[pscustomobject]@{title='P3 W17-18: Implement basic query planner'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 17-18: Query Optimization`n`n## Objective`nImplement basic query planner.`n`n## Acceptance Criteria`n- Planner produces executable plans for supported query forms`n- Plan generation tests pass'}
+[pscustomobject]@{title='P3 W17-18: Add cost-based optimization'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 17-18: Query Optimization`n`n## Objective`nAdd cost-based optimization.`n`n## Acceptance Criteria`n- Cost model compares candidate plans`n- Optimizer picks lower-cost plans in benchmarked cases'}
+[pscustomobject]@{title='P3 W17-18: Create statistics collection'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 17-18: Query Optimization`n`n## Objective`nCreate statistics collection.`n`n## Acceptance Criteria`n- Table/column stats needed by optimizer are collected`n- Stats refresh/update behavior is documented and tested'}
+[pscustomobject]@{title='P3 W17-18: Support query plan visualization'; body='## Parent Epic`nPhase 3 (Weeks 13-18): Query Processing`n`n## Section`nWeek 17-18: Query Optimization`n`n## Objective`nSupport query plan visualization.`n`n## Acceptance Criteria`n- Plan explain output is human-readable and stable`n- Visualization output is covered by regression tests'}
+)
+
+$links = $issues | ForEach-Object {
+  $title=[uri]::EscapeDataString($_.title)
+  $body=[uri]::EscapeDataString($_.body)
+  "$repo/issues/new?title=$title&body=$body"
+}
+$links | Set-Content -Path 'phase3-child-issue-links.txt'
+$links
