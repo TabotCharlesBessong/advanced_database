@@ -11,6 +11,8 @@ add_library(dbcore STATIC
     QueryExecution.cpp
     SqlLexer.cpp
     SqlParser.cpp
+    Statistics.cpp
+    QueryPlanner.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)
