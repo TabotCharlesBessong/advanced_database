@@ -199,13 +199,12 @@ bool JoinOperator::next(Row& outRow, std::string& error) {
             // Check join condition
             const Value& leftVal = leftRow[leftColIdx];
             const Value& rightVal = rightRow[rightColIdx];
-            
-            bool matches = (leftVal.isNull() && rightVal.isNull()) ||
-                          (!leftVal.isNull() && !rightVal.isNull() &&
+
+            bool matches = !leftVal.isNull() && !rightVal.isNull() &&
                            ((leftVal.isInt() && rightVal.isInt() &&
                              leftVal.intVal == rightVal.intVal) ||
                             (leftVal.isString() && rightVal.isString() &&
-                             leftVal.strVal == rightVal.strVal)));
+                             leftVal.strVal == rightVal.strVal));
             
             if (matches) {
                 outRow.clear();
