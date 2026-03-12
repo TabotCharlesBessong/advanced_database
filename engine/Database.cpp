@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <unordered_map>
 #include <unordered_set>
 
 Database::Database(const std::string& dbPath)
@@ -120,12 +121,32 @@ bool Database::selectRowsProjected(const std::string& tableName,
         return false;
     }
 
+    // Validate projection columns against the schema up front so that unknown
+    // column names are rejected even when the heap file does not exist yet.
+    std::vector<advdb::ColumnDefinition> projectedColumns;
+    if (!projectionColumns.empty()) {
+        std::unordered_map<std::string, std::size_t> indexMap;
+        for (std::size_t i = 0; i < schema.columns.size(); ++i) {
+            indexMap[schema.columns[i].name] = i;
+        }
+        for (const std::string& colName : projectionColumns) {
+            const auto it = indexMap.find(colName);
+            if (it == indexMap.end()) {
+                error = "Unknown projection column: " + colName;
+                return false;
+            }
+            projectedColumns.push_back(schema.columns[it->second]);
+        }
+    } else {
+        projectedColumns = schema.columns;
+    }
+
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
     advdb::TableHeap heap(heapPath);
     if (!heap.open()) {
         // No rows yet (heap file may not exist).
         outRows.clear();
-        outColumns = projectionColumns.empty() ? schema.columns : std::vector<advdb::ColumnDefinition>{};
+        outColumns = projectedColumns;
         return true;
     }
 

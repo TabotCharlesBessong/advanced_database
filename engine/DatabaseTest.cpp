@@ -544,6 +544,38 @@ TEST(QueryExecutionTest, UnknownProjectionColumnFails) {
     cleanupFile(dbPath);
 }
 
+TEST(QueryExecutionTest, ProjectionColumnsPopulatedOnEmptyTable) {
+    // Verifies that outColumns contains the requested projected ColumnDefinitions
+    // even when the table has no rows (heap file does not exist yet), and that
+    // an invalid column name is still rejected in this case.
+    const std::string dbPath = tempPath("query_exec_proj_empty_table");
+    cleanupFile(dbPath);
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    // Valid projection on empty table: outColumns must reflect the requested columns.
+    std::vector<advdb::Row> outRows;
+    std::vector<advdb::ColumnDefinition> outCols;
+    ASSERT_TRUE(db.selectRowsProjected("users", {}, {"id", "name"}, outRows, outCols, error)) << error;
+    EXPECT_TRUE(outRows.empty());
+    ASSERT_EQ(outCols.size(), 2U);
+    EXPECT_EQ(outCols[0].name, "id");
+    EXPECT_EQ(outCols[1].name, "name");
+
+    // Invalid projection column on empty table must still fail.
+    error.clear();
+    outCols.clear();
+    EXPECT_FALSE(db.selectRowsProjected("users", {}, {"does_not_exist"}, outRows, outCols, error));
+    EXPECT_NE(error.find("Unknown projection column"), std::string::npos);
+
+    cleanupFile(dbPath);
+}
+
 // Week 15-16: Advanced SQL Features Tests
 TEST(SqlParserTest, ParseJoinClause) {
     // Note: Simple column names without table prefix for MVP
