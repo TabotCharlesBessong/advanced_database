@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,8 @@ std::string tempPath(const std::string& baseName) {
 void cleanupFile(const std::string& path) {
     std::remove(path.c_str());
     std::remove((path + ".catalog").c_str());
+    std::remove((path + ".wal").c_str());
+    std::remove((path + ".indexes.meta").c_str());
 }
 
 } // namespace
@@ -40,7 +43,7 @@ TEST(DatabaseTest, Initialization) {
 
     Database db(dbPath);
     EXPECT_TRUE(db.initialize());
-    EXPECT_EQ(db.getVersion(), "0.3.0");
+    EXPECT_EQ(db.getVersion(), "0.4.0");
 
     cleanupFile(dbPath);
 }
@@ -1025,5 +1028,96 @@ TEST(IndexTest, IndexMaintainedAfterInsert) {
     std::remove((dbPath + ".orders.heap").c_str());
     std::remove((dbPath + ".orders.order_id.idx").c_str());
     std::remove((dbPath + ".indexes.meta").c_str());
+}
+
+TEST(TransactionTest, RollbackDiscardsStagedInserts) {
+    const std::string dbPath = tempPath("txn_rollback");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    ASSERT_TRUE(db.beginTransaction(error));
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(1), advdb::Value::makeString("alice"), advdb::Value::makeNull()}, error));
+    ASSERT_TRUE(db.rollbackTransaction(error));
+
+    std::vector<advdb::Row> rows;
+    ASSERT_TRUE(db.selectRows("users", {}, rows, error));
+    EXPECT_TRUE(rows.empty());
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+}
+
+TEST(TransactionTest, CommitPersistsStagedInserts) {
+    const std::string dbPath = tempPath("txn_commit");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    ASSERT_TRUE(db.beginTransaction(error));
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(2), advdb::Value::makeString("bob"), advdb::Value::makeNull()}, error));
+    ASSERT_TRUE(db.commitTransaction(error));
+
+    std::vector<advdb::Predicate> predicates{
+        advdb::Predicate{"id", advdb::CompareOp::EQ, advdb::Value::makeInt(2)}
+    };
+    std::vector<advdb::Row> rows;
+    ASSERT_TRUE(db.selectRows("users", predicates, rows, error));
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows[0][1].strVal, "bob");
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+}
+
+TEST(TransactionTest, RecoveryReplaysCommittedNotAppliedTx) {
+    const std::string dbPath = tempPath("txn_recovery");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+
+    {
+        Database db(dbPath);
+        ASSERT_TRUE(db.initialize());
+
+        const advdb::TableSchema schema = makeUsersSchema();
+        std::string error;
+        ASSERT_TRUE(db.createTable(schema, error));
+
+        // Simulate a committed but unapplied transaction in WAL.
+        std::ofstream wal(dbPath + ".wal", std::ios::app);
+        ASSERT_TRUE(static_cast<bool>(wal));
+        wal << "BEGIN 999\n";
+        wal << "INSERT 999 users I:3|S:carol|N\n";
+        wal << "COMMIT 999\n";
+    }
+
+    {
+        Database reopened(dbPath);
+        ASSERT_TRUE(reopened.initialize());
+
+        std::string error;
+        std::vector<advdb::Predicate> predicates{
+            advdb::Predicate{"id", advdb::CompareOp::EQ, advdb::Value::makeInt(3)}
+        };
+        std::vector<advdb::Row> rows;
+        ASSERT_TRUE(reopened.selectRows("users", predicates, rows, error));
+        ASSERT_EQ(rows.size(), 1U);
+        EXPECT_EQ(rows[0][1].strVal, "carol");
+    }
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
 }
 

@@ -8,8 +8,9 @@
 
 Database::Database(const std::string& dbPath)
     : dbPath_(dbPath),
-    catalog_(dbPath + ".catalog"),
-    indexManager_(dbPath) {}
+      catalog_(dbPath + ".catalog"),
+      indexManager_(dbPath),
+      transactionManager_() {}
 
 Database::~Database() {}
 
@@ -44,12 +45,23 @@ bool Database::initialize() {
         return false;
     }
 
+    const std::string walPath = dbPath_ + ".wal";
+    if (!transactionManager_.initialize(
+            walPath,
+            [this](const std::string& tableName, const advdb::Row& row, std::string& callbackError) {
+                return insertRowDirect(tableName, row, callbackError);
+            },
+            error)) {
+        std::cerr << "Failed to initialize transaction manager: " << error << std::endl;
+        return false;
+    }
+
     std::cout << "Database initialized at: " << dbPath_ << std::endl;
     return true;
 }
 
 std::string Database::getVersion() {
-    return "0.3.0";
+    return "0.4.0";
 }
 
 bool Database::createTable(const advdb::TableSchema& schema, std::string& error) {
@@ -73,6 +85,13 @@ std::vector<std::string> Database::listTables() const {
 }
 
 bool Database::insertRow(const std::string& tableName, const advdb::Row& row, std::string& error) {
+    if (transactionManager_.inTransaction()) {
+        return transactionManager_.stageInsert(tableName, row, error);
+    }
+    return insertRowDirect(tableName, row, error);
+}
+
+bool Database::insertRowDirect(const std::string& tableName, const advdb::Row& row, std::string& error) {
     advdb::TableSchema schema;
     if (!catalog_.getTable(tableName, schema, error)) {
         return false;
@@ -84,7 +103,6 @@ bool Database::insertRow(const std::string& tableName, const advdb::Row& row, st
         return false;
     }
 
-    // Validate nullability constraints.
     for (std::size_t i = 0u; i < schema.columns.size(); ++i) {
         if (row[i].isNull() && !schema.columns[i].nullable) {
             error = "Column '" + schema.columns[i].name + "' is NOT NULL";
@@ -113,9 +131,9 @@ bool Database::insertRow(const std::string& tableName, const advdb::Row& row, st
 }
 
 bool Database::selectRows(const std::string& tableName,
-                           const std::vector<advdb::Predicate>& predicates,
-                           std::vector<advdb::Row>& outRows,
-                           std::string& error) {
+                          const std::vector<advdb::Predicate>& predicates,
+                          std::vector<advdb::Row>& outRows,
+                          std::string& error) {
     std::vector<advdb::ColumnDefinition> outColumns;
     return selectRowsProjected(tableName, predicates, {}, outRows, outColumns, error);
 }
@@ -131,26 +149,6 @@ bool Database::selectRowsProjected(const std::string& tableName,
         return false;
     }
 
-<<<<<<< HEAD
-    // Validate projection columns against the schema up front so that unknown
-    // column names are rejected even when the heap file does not exist yet.
-    std::vector<advdb::ColumnDefinition> projectedColumns;
-    if (!projectionColumns.empty()) {
-        std::unordered_map<std::string, std::size_t> indexMap;
-        for (std::size_t i = 0; i < schema.columns.size(); ++i) {
-            indexMap[schema.columns[i].name] = i;
-        }
-        for (const std::string& colName : projectionColumns) {
-            const auto it = indexMap.find(colName);
-            if (it == indexMap.end()) {
-                error = "Unknown projection column: " + colName;
-                return false;
-            }
-            projectedColumns.push_back(schema.columns[it->second]);
-        }
-    } else {
-        projectedColumns = schema.columns;
-=======
     std::vector<std::size_t> projectionIndices;
     if (projectionColumns.empty()) {
         outColumns = schema.columns;
@@ -205,18 +203,12 @@ bool Database::selectRowsProjected(const std::string& tableName,
             }
         }
         return true;
->>>>>>> da67f51 (Add IndexManager integration to Database class; implement createIndex method and update initialization)
     }
 
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
     advdb::TableHeap heap(heapPath);
     if (!heap.open()) {
-        // No rows yet (heap file may not exist).
         outRows.clear();
-<<<<<<< HEAD
-        outColumns = projectedColumns;
-=======
->>>>>>> da67f51 (Add IndexManager integration to Database class; implement createIndex method and update initialization)
         return true;
     }
 
@@ -234,6 +226,22 @@ bool Database::createIndex(const std::string& tableName,
 
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
     return indexManager_.createIndex(tableName, schema, columnName, heapPath, error);
+}
+
+bool Database::beginTransaction(std::string& error) {
+    return transactionManager_.begin(error);
+}
+
+bool Database::commitTransaction(std::string& error) {
+    return transactionManager_.commit(error);
+}
+
+bool Database::rollbackTransaction(std::string& error) {
+    return transactionManager_.rollback(error);
+}
+
+bool Database::inTransaction() const {
+    return transactionManager_.inTransaction();
 }
 
 bool Database::isValidIdentifier(const std::string& value) {
