@@ -7,7 +7,8 @@
 
 Database::Database(const std::string& dbPath)
     : dbPath_(dbPath),
-      catalog_(dbPath + ".catalog") {}
+    catalog_(dbPath + ".catalog"),
+    indexManager_(dbPath) {}
 
 Database::~Database() {}
 
@@ -37,12 +38,17 @@ bool Database::initialize() {
         return false;
     }
 
+    if (!indexManager_.initialize(catalog_, error)) {
+        std::cerr << "Failed to initialize index manager: " << error << std::endl;
+        return false;
+    }
+
     std::cout << "Database initialized at: " << dbPath_ << std::endl;
     return true;
 }
 
 std::string Database::getVersion() {
-    return "0.2.0";
+    return "0.3.0";
 }
 
 bool Database::createTable(const advdb::TableSchema& schema, std::string& error) {
@@ -98,6 +104,10 @@ bool Database::insertRow(const std::string& tableName, const advdb::Row& row, st
         return false;
     }
 
+    if (!indexManager_.onRowInserted(tableName, schema, row, error)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -120,17 +130,84 @@ bool Database::selectRowsProjected(const std::string& tableName,
         return false;
     }
 
+    std::vector<std::size_t> projectionIndices;
+    if (projectionColumns.empty()) {
+        outColumns = schema.columns;
+    } else {
+        outColumns.clear();
+        projectionIndices.reserve(projectionColumns.size());
+        for (const std::string& projectionColumn : projectionColumns) {
+            std::size_t idx = schema.columns.size();
+            for (std::size_t i = 0; i < schema.columns.size(); ++i) {
+                if (schema.columns[i].name == projectionColumn) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx == schema.columns.size()) {
+                error = "Unknown projection column: " + projectionColumn;
+                return false;
+            }
+            projectionIndices.push_back(idx);
+            outColumns.push_back(schema.columns[idx]);
+        }
+    }
+
+    bool usedIndex = false;
+    std::vector<advdb::Row> indexedRows;
+    if (!predicates.empty()) {
+        if (!indexManager_.tryIndexLookup(tableName, schema, predicates, indexedRows, usedIndex, error)) {
+            return false;
+        }
+    }
+
+    if (usedIndex) {
+        outRows.clear();
+        for (const advdb::Row& row : indexedRows) {
+            if (!advdb::evaluatePredicates(predicates, row, schema)) {
+                continue;
+            }
+
+            if (projectionColumns.empty()) {
+                outRows.push_back(row);
+            } else {
+                advdb::Row projected;
+                projected.reserve(projectionIndices.size());
+                for (std::size_t idx : projectionIndices) {
+                    if (idx >= row.size()) {
+                        error = "Index row projection failed: index out of range";
+                        return false;
+                    }
+                    projected.push_back(row[idx]);
+                }
+                outRows.push_back(std::move(projected));
+            }
+        }
+        return true;
+    }
+
     const std::string heapPath = dbPath_ + "." + tableName + ".heap";
     advdb::TableHeap heap(heapPath);
     if (!heap.open()) {
         // No rows yet (heap file may not exist).
         outRows.clear();
-        outColumns = projectionColumns.empty() ? schema.columns : std::vector<advdb::ColumnDefinition>{};
         return true;
     }
 
     advdb::ExecutionEngine engine;
     return engine.executeSelect(heap, schema, predicates, projectionColumns, outRows, outColumns, error);
+}
+
+bool Database::createIndex(const std::string& tableName,
+                           const std::string& columnName,
+                           std::string& error) {
+    advdb::TableSchema schema;
+    if (!catalog_.getTable(tableName, schema, error)) {
+        return false;
+    }
+
+    const std::string heapPath = dbPath_ + "." + tableName + ".heap";
+    return indexManager_.createIndex(tableName, schema, columnName, heapPath, error);
 }
 
 bool Database::isValidIdentifier(const std::string& value) {
