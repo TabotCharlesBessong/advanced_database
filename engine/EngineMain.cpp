@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -295,6 +296,47 @@ advdb::CompareOp sqlWhereToCompareOp(advdb::SqlWhereClause::Op op) {
 }
 
 bool executeSql(Database& db, const std::string& sql, std::string& outJson, std::string& error) {
+    std::string normalized = sql;
+    while (!normalized.empty() && std::isspace(static_cast<unsigned char>(normalized.front()))) {
+        normalized.erase(normalized.begin());
+    }
+    while (!normalized.empty() && std::isspace(static_cast<unsigned char>(normalized.back()))) {
+        normalized.pop_back();
+    }
+    if (!normalized.empty() && normalized.back() == ';') {
+        normalized.pop_back();
+    }
+    while (!normalized.empty() && std::isspace(static_cast<unsigned char>(normalized.back()))) {
+        normalized.pop_back();
+    }
+
+    std::string upper = normalized;
+    for (char& c : upper) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+
+    if (upper == "BEGIN") {
+        if (!db.beginTransaction(error)) {
+            return false;
+        }
+        outJson = "{\"ok\":true,\"statement\":\"begin\"}";
+        return true;
+    }
+    if (upper == "COMMIT") {
+        if (!db.commitTransaction(error)) {
+            return false;
+        }
+        outJson = "{\"ok\":true,\"statement\":\"commit\"}";
+        return true;
+    }
+    if (upper == "ROLLBACK") {
+        if (!db.rollbackTransaction(error)) {
+            return false;
+        }
+        outJson = "{\"ok\":true,\"statement\":\"rollback\"}";
+        return true;
+    }
+
     advdb::SqlLexer lexer(sql);
     std::vector<advdb::SqlToken> tokens;
     advdb::SqlParseError lexError;
@@ -419,6 +461,36 @@ int main(int argc, char** argv) {
     // ---- init ---------------------------------------------------------------
     if (command == "init") {
         std::cout << R"({"ok":true})" << std::endl;
+        return 0;
+    }
+
+    if (command == "begin") {
+        std::string error;
+        if (!db.beginTransaction(error)) {
+            std::cout << "{\"ok\":false,\"error\":\"" << jsonEscape(error) << "\"}" << std::endl;
+            return 1;
+        }
+        std::cout << R"({"ok":true,"statement":"begin"})" << std::endl;
+        return 0;
+    }
+
+    if (command == "commit") {
+        std::string error;
+        if (!db.commitTransaction(error)) {
+            std::cout << "{\"ok\":false,\"error\":\"" << jsonEscape(error) << "\"}" << std::endl;
+            return 1;
+        }
+        std::cout << R"({"ok":true,"statement":"commit"})" << std::endl;
+        return 0;
+    }
+
+    if (command == "rollback") {
+        std::string error;
+        if (!db.rollbackTransaction(error)) {
+            std::cout << "{\"ok\":false,\"error\":\"" << jsonEscape(error) << "\"}" << std::endl;
+            return 1;
+        }
+        std::cout << R"({"ok":true,"statement":"rollback"})" << std::endl;
         return 0;
     }
 
