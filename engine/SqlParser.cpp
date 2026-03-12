@@ -138,6 +138,55 @@ bool SqlParser::parseSelect(SqlStatement& outStatement, SqlParseError& error) {
     }
     stmt.tableName = previous().lexeme;
 
+    // Parse JOINs (Week 15-16)
+    while (match(SqlTokenType::Join) || check(SqlTokenType::Inner) || check(SqlTokenType::Left) || check(SqlTokenType::Right)) {
+        // Handle JOIN modifiers (INNER, LEFT, RIGHT)
+        SqlJoinClause join;
+        
+        if (match(SqlTokenType::Inner)) {
+            join.type = SqlJoinClause::Type::Inner;
+            if (!consume(SqlTokenType::Join, "Expected JOIN after INNER", error)) {
+                return false;
+            }
+        } else if (match(SqlTokenType::Left)) {
+            join.type = SqlJoinClause::Type::Left;
+            if (!consume(SqlTokenType::Join, "Expected JOIN after LEFT", error)) {
+                return false;
+            }
+        } else if (match(SqlTokenType::Right)) {
+            join.type = SqlJoinClause::Type::Right;
+            if (!consume(SqlTokenType::Join, "Expected JOIN after RIGHT", error)) {
+                return false;
+            }
+        } else {
+            match(SqlTokenType::Join);
+            join.type = SqlJoinClause::Type::Inner;
+        }
+
+        if (!consume(SqlTokenType::Identifier, "Expected table name after JOIN", error)) {
+            return false;
+        }
+        join.joinTable = previous().lexeme;
+
+        if (!consume(SqlTokenType::On, "Expected ON clause for JOIN", error)) {
+            return false;
+        }
+        if (!consume(SqlTokenType::Identifier, "Expected column name in ON clause", error)) {
+            return false;
+        }
+        join.leftColumn = previous().lexeme;
+        
+        if (!consume(SqlTokenType::Eq, "Expected '=' in ON clause", error)) {
+            return false;
+        }
+        if (!consume(SqlTokenType::Identifier, "Expected right column in ON clause", error)) {
+            return false;
+        }
+        join.rightColumn = previous().lexeme;
+
+        stmt.joins.push_back(join);
+    }
+
     if (match(SqlTokenType::Where)) {
         stmt.hasWhere = true;
 
@@ -166,6 +215,93 @@ bool SqlParser::parseSelect(SqlStatement& outStatement, SqlParseError& error) {
         if (!parseLiteral(stmt.where.literal, error)) {
             return false;
         }
+    }
+
+    // Parse GROUP BY (Week 15-16)
+    if (match(SqlTokenType::Group)) {
+        stmt.hasGroupBy = true;
+        if (!consume(SqlTokenType::By, "Expected BY after GROUP", error)) {
+            return false;
+        }
+        do {
+            if (!consume(SqlTokenType::Identifier, "Expected column name in GROUP BY", error)) {
+                return false;
+            }
+            stmt.groupBy.columns.push_back(previous().lexeme);
+        } while (match(SqlTokenType::Comma));
+    }
+
+    // Parse HAVING (Week 15-16)
+    if (match(SqlTokenType::Having)) {
+        stmt.hasHaving = true;
+        
+        // Parse aggregate function
+        if (match(SqlTokenType::Count)) {
+            stmt.having.aggregateFunc = "COUNT";
+        } else if (match(SqlTokenType::Sum)) {
+            stmt.having.aggregateFunc = "SUM";
+        } else if (match(SqlTokenType::Avg)) {
+            stmt.having.aggregateFunc = "AVG";
+        } else {
+            error = makeError("Expected aggregate function (COUNT, SUM, AVG) in HAVING");
+            return false;
+        }
+
+        if (!consume(SqlTokenType::LParen, "Expected '(' after aggregate function", error)) {
+            return false;
+        }
+        if (!consume(SqlTokenType::Identifier, "Expected column name in aggregate", error)) {
+            return false;
+        }
+        stmt.having.aggregateColumn = previous().lexeme;
+        if (!consume(SqlTokenType::RParen, "Expected ')' after aggregate column", error)) {
+            return false;
+        }
+
+        // Parse comparison operator
+        if (match(SqlTokenType::Eq)) {
+            stmt.having.op = SqlWhereClause::Op::Eq;
+        } else if (match(SqlTokenType::Neq)) {
+            stmt.having.op = SqlWhereClause::Op::Neq;
+        } else if (match(SqlTokenType::Lt)) {
+            stmt.having.op = SqlWhereClause::Op::Lt;
+        } else if (match(SqlTokenType::Lte)) {
+            stmt.having.op = SqlWhereClause::Op::Lte;
+        } else if (match(SqlTokenType::Gt)) {
+            stmt.having.op = SqlWhereClause::Op::Gt;
+        } else if (match(SqlTokenType::Gte)) {
+            stmt.having.op = SqlWhereClause::Op::Gte;
+        } else {
+            error = makeError("Expected comparison operator in HAVING clause");
+            return false;
+        }
+
+        if (!parseLiteral(stmt.having.value, error)) {
+            return false;
+        }
+    }
+
+    // Parse ORDER BY (Week 15-16)
+    if (match(SqlTokenType::Order)) {
+        stmt.hasOrderBy = true;
+        if (!consume(SqlTokenType::By, "Expected BY after ORDER", error)) {
+            return false;
+        }
+        do {
+            if (!consume(SqlTokenType::Identifier, "Expected column name in ORDER BY", error)) {
+                return false;
+            }
+            std::string columnName = previous().lexeme;
+            
+            SqlOrderByClause::Direction dir = SqlOrderByClause::Direction::Asc;
+            if (match(SqlTokenType::Desc)) {
+                dir = SqlOrderByClause::Direction::Desc;
+            } else {
+                match(SqlTokenType::Asc);  // optional ASC
+            }
+            
+            stmt.orderBy.columns.push_back({columnName, dir});
+        } while (match(SqlTokenType::Comma));
     }
 
     outStatement = stmt;
