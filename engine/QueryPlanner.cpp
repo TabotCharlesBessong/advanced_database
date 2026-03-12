@@ -54,14 +54,15 @@ CostEstimate QueryPlanner::estimateCost(const std::shared_ptr<PlanNode>& plan) c
         }
 
         case PlanNodeType::Join: {
-            // Join cost combines left and right table scans plus join condition evaluation
-            if (!plan->children.empty()) {
-                auto childPtr = std::make_shared<PlanNode>(plan->children[0]);
-                CostEstimate leftCost = estimateCost(childPtr);
-                // Assume nested loop join: cost = left_rows * right_cost
-                cost = leftCost;
-                cost.cpuCost *= 2.0;  // Nested loop multiplication
-                cost.totalCost = cost.cpuCost + (cost.ioCount * 10.0);
+            // Join cost combines left and right inputs via nested loop join model
+            if (plan->children.size() == 2) {
+                auto leftPtr = std::make_shared<PlanNode>(plan->children[0]);
+                auto rightPtr = std::make_shared<PlanNode>(plan->children[1]);
+                CostEstimate leftCost = estimateCost(leftPtr);
+                CostEstimate rightCost = estimateCost(rightPtr);
+                cost = estimateJoinCost(
+                    leftPtr->detail, leftCost.outputRows,
+                    rightPtr->detail, rightCost.outputRows);
             }
             break;
         }
