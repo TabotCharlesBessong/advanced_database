@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string>
 #include <vector>
 
 #include "Value.h"
@@ -23,6 +24,8 @@ public:
     bool rollback(std::string& error);
 
     bool inTransaction() const;
+    std::uint64_t currentTransactionId() const;
+    std::vector<Row> pendingRowsForTable(const std::string& tableName) const;
 
 private:
     struct PendingInsert {
@@ -57,6 +60,7 @@ private:
     bool active_{false};
     std::uint64_t currentTxId_{0};
     std::uint64_t nextTxId_{1};
+    std::uint64_t snapshotVersion_{0};
     std::vector<PendingInsert> pendingInserts_;
 };
 

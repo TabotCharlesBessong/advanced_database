@@ -1,10 +1,21 @@
 #include "TransactionManager.h"
 
+#include <atomic>
 #include <fstream>
+#include <set>
 #include <map>
 #include <sstream>
 
+#include "LockManager.h"
+#include "MvccManager.h"
+
 namespace advdb {
+
+namespace {
+
+std::atomic<std::uint64_t> gNextTransactionId{1};
+
+} // namespace
 
 bool TransactionManager::initialize(const std::string& walPath,
                                     ApplyInsertFn applyInsertFn,
@@ -28,7 +39,9 @@ bool TransactionManager::begin(std::string& error) {
     }
 
     active_ = true;
-    currentTxId_ = nextTxId_++;
+    currentTxId_ = gNextTransactionId.fetch_add(1);
+    nextTxId_ = currentTxId_ + 1;
+    snapshotVersion_ = MvccManager::instance().begin(currentTxId_).snapshotVersion;
     pendingInserts_.clear();
 
     return appendWalLine("BEGIN " + std::to_string(currentTxId_), error);
@@ -52,26 +65,47 @@ bool TransactionManager::commit(std::string& error) {
 
     const std::uint64_t txId = currentTxId_;
 
+    std::set<std::string> touchedTables;
+    for (const PendingInsert& insert : pendingInserts_) {
+        touchedTables.insert(insert.tableName);
+    }
+
+    for (const std::string& tableName : touchedTables) {
+        if (!LockManager::instance().lockExclusive(txId, "table:" + tableName, error)) {
+            std::string rollbackError;
+            rollback(rollbackError);
+            return false;
+        }
+    }
+
     if (!appendWalLine("COMMIT " + std::to_string(txId), error)) {
+        LockManager::instance().unlockAll(txId);
         return false;
     }
 
     for (const PendingInsert& insert : pendingInserts_) {
         if (!applyInsertFn_(insert.tableName, insert.row, error)) {
+            LockManager::instance().unlockAll(txId);
             active_ = false;
             pendingInserts_.clear();
             currentTxId_ = 0;
+            snapshotVersion_ = 0;
             return false;
         }
     }
 
+    MvccManager::instance().commit(txId);
+
     if (!appendWalLine("APPLIED " + std::to_string(txId), error)) {
+        LockManager::instance().unlockAll(txId);
         return false;
     }
 
+    LockManager::instance().unlockAll(txId);
     active_ = false;
     pendingInserts_.clear();
     currentTxId_ = 0;
+    snapshotVersion_ = 0;
     return true;
 }
 
@@ -86,14 +120,30 @@ bool TransactionManager::rollback(std::string& error) {
         return false;
     }
 
+    LockManager::instance().unlockAll(txId);
     active_ = false;
     pendingInserts_.clear();
     currentTxId_ = 0;
+    snapshotVersion_ = 0;
     return true;
 }
 
 bool TransactionManager::inTransaction() const {
     return active_;
+}
+
+std::uint64_t TransactionManager::currentTransactionId() const {
+    return currentTxId_;
+}
+
+std::vector<Row> TransactionManager::pendingRowsForTable(const std::string& tableName) const {
+    std::vector<Row> rows;
+    for (const PendingInsert& insert : pendingInserts_) {
+        if (insert.tableName == tableName && MvccManager::instance().canReadUncommitted(currentTxId_, currentTxId_)) {
+            rows.push_back(insert.row);
+        }
+    }
+    return rows;
 }
 
 std::string TransactionManager::escape(const std::string& value) {
