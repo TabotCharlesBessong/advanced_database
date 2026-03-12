@@ -394,29 +394,20 @@ GroupByOperator::GroupByOperator(std::unique_ptr<IOperator> child,
     : child_(std::move(child)), schema_(schema), groupColumns_(std::move(groupColumns)) {}
 
 bool GroupByOperator::open(std::string& error) {
+    // GroupByOperator is currently a placeholder and must not be used,
+    // because it does not yet implement correct GROUP BY semantics.
     groupedRows_.clear();
     index_ = 0;
 
-    if (!child_->open(error)) {
-        return false;
-    }
-
-    Row row;
-    while (child_->next(row, error)) {
-        groupedRows_.push_back(row);
-    }
-    child_->close();
-
-    return true;
+    error = "GroupByOperator is not implemented and cannot be used";
+    return false;
 }
 
 bool GroupByOperator::next(Row& outRow, std::string& error) {
-    if (index_ >= groupedRows_.size()) {
-        return false;
-    }
-
-    outRow = groupedRows_[index_++];
-    return true;
+    // Since open() always fails, next() must not produce any rows.
+    (void)outRow;  // suppress unused parameter warning if any
+    error.clear();
+    return false;
 }
 
 void GroupByOperator::close() {
