@@ -1,12 +1,26 @@
 # C++ core engine configuration
 add_library(dbcore STATIC
     Database.cpp
+    TableCatalog.cpp
     Page.cpp
     FileManager.cpp
     BufferPool.cpp
+    RecordLayout.cpp
+    SlottedPage.cpp
+    TableHeap.cpp
+    SqlLexer.cpp
+    SqlParser.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)
+
+add_executable(dbcore_engine
+    EngineMain.cpp
+)
+
+target_link_libraries(dbcore_engine
+    dbcore
+)
 
 # Add test executable
 add_executable(dbcore_test
