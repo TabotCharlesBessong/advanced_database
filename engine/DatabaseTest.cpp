@@ -17,6 +17,8 @@
 #include "SlottedPage.h"
 #include "TableHeap.h"
 #include "Value.h"
+#include "Statistics.h"
+#include "QueryPlanner.h"
 
 namespace {
 
@@ -721,5 +723,128 @@ TEST(QueryExecutionTest, AggregateOperatorCount) {
 
     cleanupFile(dbPath);
     std::remove((dbPath + ".sales.heap").c_str());
+}
+
+TEST(StatisticsTest, UpdateAndRetrieveTableStats) {
+    advdb::Statistics stats;
+    
+    advdb::ColumnStats col1;
+    col1.columnName = "id";
+    col1.distinctCount = 100;
+    col1.isNumeric = true;
+    
+    advdb::ColumnStats col2;
+    col2.columnName = "name";
+    col2.distinctCount = 100;
+    col2.isNumeric = false;
+    
+    advdb::TableStats tableStats;
+    tableStats.tableName = "users";
+    tableStats.rowCount = 1000;
+    tableStats.columnStats = {col1, col2};
+    
+    stats.updateTableStats(tableStats);
+    
+    const advdb::TableStats* retrieved = stats.getTableStats("users");
+    ASSERT_NE(retrieved, nullptr);
+    EXPECT_EQ(retrieved->tableName, "users");
+    EXPECT_EQ(retrieved->rowCount, 1000);
+    EXPECT_EQ(retrieved->columnStats.size(), 2U);
+}
+
+TEST(StatisticsTest, EstimateSelectivityForNumericColumn) {
+    advdb::Statistics stats;
+    
+    advdb::ColumnStats col;
+    col.columnName = "age";
+    col.distinctCount = 50;
+    col.isNumeric = true;
+    
+    advdb::TableStats tableStats;
+    tableStats.tableName = "persons";
+    tableStats.rowCount = 5000;
+    tableStats.columnStats = {col};
+    
+    stats.updateTableStats(tableStats);
+    
+    double selectivity = stats.estimateSelectivity("persons", "age", 25.0);
+    EXPECT_GT(selectivity, 0.0);
+    EXPECT_LE(selectivity, 0.1);  // Assume 1/50 = 0.02 for uniform distribution
+}
+
+TEST(StatisticsTest, EstimateOutputRows) {
+    advdb::Statistics stats;
+    
+    advdb::ColumnStats col;
+    col.columnName = "id";
+    col.distinctCount = 100;
+    col.isNumeric = true;
+    
+    advdb::TableStats tableStats;
+    tableStats.tableName = "orders";
+    tableStats.rowCount = 10000;
+    tableStats.columnStats = {col};
+    
+    stats.updateTableStats(tableStats);
+    
+    long long estimatedRows = stats.estimateOutputRows("orders", 0.1);
+    EXPECT_EQ(estimatedRows, 1000);  // 10000 * 0.1 = 1000
+}
+
+TEST(StatisticsTest, ListAllTables) {
+    advdb::Statistics stats;
+    
+    advdb::TableStats table1;
+    table1.tableName = "users";
+    table1.rowCount = 1000;
+    
+    advdb::TableStats table2;
+    table2.tableName = "orders";
+    table2.rowCount = 5000;
+    
+    stats.updateTableStats(table1);
+    stats.updateTableStats(table2);
+    
+    auto tables = stats.listTables();
+    EXPECT_EQ(tables.size(), 2U);
+    EXPECT_TRUE(std::find(tables.begin(), tables.end(), "users") != tables.end());
+    EXPECT_TRUE(std::find(tables.begin(), tables.end(), "orders") != tables.end());
+}
+
+TEST(QueryPlannerTest, EstimateScanCostWithoutStats) {
+    advdb::Statistics stats;
+    advdb::QueryPlanner planner(stats);
+    
+    // Create a mock scan node
+    advdb::PlanNode scanNode;
+    scanNode.type = advdb::PlanNodeType::Scan;
+    scanNode.detail = "unknown_table";
+    
+    auto scanNodePtr = std::make_shared<advdb::PlanNode>(scanNode);
+    advdb::CostEstimate cost = planner.estimateCost(scanNodePtr);
+    
+    EXPECT_GT(cost.cpuCost, 0.0);
+    EXPECT_EQ(cost.outputRows, 1000);  // Default estimate
+}
+
+TEST(QueryPlannerTest, EstimateJoinCost) {
+    advdb::Statistics stats;
+    advdb::QueryPlanner planner(stats);
+    
+    advdb::CostEstimate joinCost = planner.estimateJoinCost("left_table", 100, "right_table", 200);
+    
+    EXPECT_GT(joinCost.cpuCost, 0.0);
+    EXPECT_GT(joinCost.outputRows, 0);
+    EXPECT_EQ(joinCost.ioCount, 300);  // left + right
+}
+
+TEST(QueryPlannerTest, OptimizeJoinOrderWithEmptyJoins) {
+    advdb::Statistics stats;
+    advdb::QueryPlanner planner(stats);
+    
+    std::vector<advdb::SqlJoinClause> joins;  // Empty
+    auto optimized = planner.optimizeJoinOrder("base_table", joins);
+    
+    EXPECT_TRUE(optimized.empty());
 }
 
