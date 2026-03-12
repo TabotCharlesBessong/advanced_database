@@ -131,7 +131,21 @@ bool SqlLexer::scanToken(SqlToken& token, SqlParseError& error) {
             {"TEXT", SqlTokenType::Text},
             {"VARCHAR", SqlTokenType::Varchar},
             {"NULL", SqlTokenType::Null},
-            {"NOT", SqlTokenType::Not}
+            {"NOT", SqlTokenType::Not},
+            {"JOIN", SqlTokenType::Join},
+            {"INNER", SqlTokenType::Inner},
+            {"LEFT", SqlTokenType::Left},
+            {"RIGHT", SqlTokenType::Right},
+            {"ON", SqlTokenType::On},
+            {"GROUP", SqlTokenType::Group},
+            {"BY", SqlTokenType::By},
+            {"HAVING", SqlTokenType::Having},
+            {"ORDER", SqlTokenType::Order},
+            {"ASC", SqlTokenType::Asc},
+            {"DESC", SqlTokenType::Desc},
+            {"COUNT", SqlTokenType::Count},
+            {"SUM", SqlTokenType::Sum},
+            {"AVG", SqlTokenType::Avg}
         };
 
         const std::string up = upper(ident);

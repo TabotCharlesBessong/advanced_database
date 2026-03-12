@@ -27,7 +27,7 @@ interface FilterRequest {
 }
 
 interface SqlRequest {
-  sql: string;
+  sql: string;  // SQL statement: CREATE TABLE, INSERT, SELECT (with JOINs, GROUP BY, HAVING, ORDER BY, aggregates)
 }
 
 const repoRoot: string = existsSync(path.resolve(process.cwd(), 'build'))
