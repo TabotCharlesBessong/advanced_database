@@ -236,6 +236,14 @@ std::string planNodeTypeToString(advdb::PlanNodeType type) {
             return "filter";
         case advdb::PlanNodeType::Project:
             return "project";
+        case advdb::PlanNodeType::Join:
+            return "join";
+        case advdb::PlanNodeType::GroupBy:
+            return "groupby";
+        case advdb::PlanNodeType::Sort:
+            return "sort";
+        case advdb::PlanNodeType::Aggregate:
+            return "aggregate";
     }
     return "unknown";
 }

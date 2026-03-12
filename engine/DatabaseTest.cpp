@@ -542,3 +542,184 @@ TEST(QueryExecutionTest, UnknownProjectionColumnFails) {
     cleanupFile(dbPath);
 }
 
+// Week 15-16: Advanced SQL Features Tests
+TEST(SqlParserTest, ParseJoinClause) {
+    // Note: Simple column names without table prefix for MVP
+    const std::string sql = "SELECT * FROM users JOIN orders ON id = user_id;";
+    
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError lexErr;
+    ASSERT_TRUE(lexer.tokenize(tokens, lexErr));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    advdb::SqlParseError parseErr;
+    ASSERT_TRUE(parser.parse(stmt, parseErr));
+    
+    const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
+    EXPECT_EQ(select.tableName, "users");
+    ASSERT_EQ(select.joins.size(), 1U);
+    EXPECT_EQ(select.joins[0].joinTable, "orders");
+    EXPECT_EQ(select.joins[0].leftColumn, "id");
+    EXPECT_EQ(select.joins[0].rightColumn, "user_id");
+}
+
+TEST(SqlParserTest, ParseGroupByClause) {
+    const std::string sql = "SELECT dept_id FROM employees GROUP BY dept_id;";
+    
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError lexErr;
+    ASSERT_TRUE(lexer.tokenize(tokens, lexErr));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    advdb::SqlParseError parseErr;
+    ASSERT_TRUE(parser.parse(stmt, parseErr));
+    
+    const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
+    EXPECT_TRUE(select.hasGroupBy);
+    ASSERT_EQ(select.groupBy.columns.size(), 1U);
+    EXPECT_EQ(select.groupBy.columns[0], "dept_id");
+}
+
+TEST(SqlParserTest, ParseOrderByClause) {
+    const std::string sql = "SELECT name FROM users ORDER BY name DESC, id ASC;";
+    
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError lexErr;
+    ASSERT_TRUE(lexer.tokenize(tokens, lexErr));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    advdb::SqlParseError parseErr;
+    ASSERT_TRUE(parser.parse(stmt, parseErr));
+    
+    const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
+    EXPECT_TRUE(select.hasOrderBy);
+    ASSERT_EQ(select.orderBy.columns.size(), 2U);
+    EXPECT_EQ(select.orderBy.columns[0].first, "name");
+    EXPECT_EQ(select.orderBy.columns[0].second, advdb::SqlOrderByClause::Direction::Desc);
+    EXPECT_EQ(select.orderBy.columns[1].second, advdb::SqlOrderByClause::Direction::Asc);
+}
+
+TEST(SqlParserTest, ParseHavingClause) {
+    const std::string sql = "SELECT dept_id FROM employees GROUP BY dept_id HAVING COUNT(id) > 5;";
+    
+    advdb::SqlLexer lexer(sql);
+    std::vector<advdb::SqlToken> tokens;
+    advdb::SqlParseError lexErr;
+    ASSERT_TRUE(lexer.tokenize(tokens, lexErr));
+
+    advdb::SqlParser parser(tokens);
+    advdb::SqlStatement stmt;
+    advdb::SqlParseError parseErr;
+    ASSERT_TRUE(parser.parse(stmt, parseErr));
+    
+    const auto& select = std::get<advdb::SqlSelectStatement>(stmt);
+    EXPECT_TRUE(select.hasHaving);
+    EXPECT_EQ(select.having.aggregateFunc, "COUNT");
+    EXPECT_EQ(select.having.aggregateColumn, "id");
+    EXPECT_EQ(select.having.op, advdb::SqlWhereClause::Op::Gt);
+}
+
+TEST(QueryExecutionTest, SortOperatorOrdering) {
+    const std::string dbPath = tempPath("query_exec_sort");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".scores.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    advdb::TableSchema schema;
+    schema.name = "scores";
+    schema.columns = {
+        advdb::ColumnDefinition{"player", advdb::ColumnType::Varchar, 64U, false},
+        advdb::ColumnDefinition{"points", advdb::ColumnType::Int, 0U, false}
+    };
+
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    ASSERT_TRUE(db.insertRow("scores", {advdb::Value::makeString("Alice"), advdb::Value::makeInt(100)}, error));
+    ASSERT_TRUE(db.insertRow("scores", {advdb::Value::makeString("Bob"), advdb::Value::makeInt(200)}, error));
+    ASSERT_TRUE(db.insertRow("scores", {advdb::Value::makeString("Carol"), advdb::Value::makeInt(150)}, error));
+
+    // Test SortOperator directly
+    advdb::TableHeap heap(dbPath + ".scores.heap");
+    ASSERT_TRUE(heap.open());
+
+    advdb::SortOperator::SortKey key{"points", true};  // DESC
+    
+    advdb::ScanOperator scan(heap, schema);
+    advdb::SortOperator sort(std::make_unique<advdb::ScanOperator>(heap, schema), schema, {key});
+    
+    std::string sortError;
+    ASSERT_TRUE(sort.open(sortError));
+    
+    advdb::Row row;
+    std::vector<int> sortedPoints;
+    while (sort.next(row, sortError)) {
+        if (row.size() >= 2 && row[1].isInt()) {
+            sortedPoints.push_back(static_cast<int>(row[1].intVal));
+        }
+    }
+    sort.close();
+
+    ASSERT_EQ(sortedPoints.size(), 3U);
+    EXPECT_EQ(sortedPoints[0], 200);  // Highest first (DESC)
+    EXPECT_EQ(sortedPoints[1], 150);
+    EXPECT_EQ(sortedPoints[2], 100);
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".scores.heap").c_str());
+}
+
+TEST(QueryExecutionTest, AggregateOperatorCount) {
+    const std::string dbPath = tempPath("query_exec_aggregate");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".sales.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    advdb::TableSchema schema;
+    schema.name = "sales";
+    schema.columns = {
+        advdb::ColumnDefinition{"id", advdb::ColumnType::Int, 0U, false},
+        advdb::ColumnDefinition{"amount", advdb::ColumnType::Int, 0U, false}
+    };
+
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    ASSERT_TRUE(db.insertRow("sales", {advdb::Value::makeInt(1), advdb::Value::makeInt(10)}, error));
+    ASSERT_TRUE(db.insertRow("sales", {advdb::Value::makeInt(2), advdb::Value::makeInt(20)}, error));
+    ASSERT_TRUE(db.insertRow("sales", {advdb::Value::makeInt(3), advdb::Value::makeInt(30)}, error));
+
+    advdb::TableHeap heap(dbPath + ".sales.heap");
+    ASSERT_TRUE(heap.open());
+
+    advdb::AggregateOperator aggr(std::make_unique<advdb::ScanOperator>(heap, schema), 
+                                  schema,
+                                  advdb::AggregateOperator::AggFunc::Count,
+                                  "id");
+    
+    std::string aggError;
+    ASSERT_TRUE(aggr.open(aggError));
+    
+    advdb::Row result;
+    ASSERT_TRUE(aggr.next(result, aggError));
+    ASSERT_EQ(result.size(), 1U);
+    EXPECT_EQ(result[0].intVal, 3);  // COUNT = 3
+    
+    // Second call should return false (aggregate result already emitted)
+    EXPECT_FALSE(aggr.next(result, aggError));
+    aggr.close();
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".sales.heap").c_str());
+}
+
