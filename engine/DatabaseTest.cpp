@@ -487,3 +487,58 @@ TEST(SqlParserTest, ReportsSyntaxErrors) {
     EXPECT_FALSE(error.message.empty());
 }
 
+TEST(QueryExecutionTest, ProjectAndFilterPipeline) {
+    const std::string dbPath = tempPath("query_exec_project_filter");
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(1), advdb::Value::makeString("Alice"), advdb::Value::makeString("A")}, error));
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(2), advdb::Value::makeString("Bob"), advdb::Value::makeString("B")}, error));
+    ASSERT_TRUE(db.insertRow("users", {advdb::Value::makeInt(3), advdb::Value::makeString("Carol"), advdb::Value::makeString("C")}, error));
+
+    advdb::Predicate pred;
+    pred.column = "id";
+    pred.op = advdb::CompareOp::GT;
+    pred.value = advdb::Value::makeInt(1);
+
+    std::vector<advdb::Row> outRows;
+    std::vector<advdb::ColumnDefinition> outCols;
+    ASSERT_TRUE(db.selectRowsProjected("users", {pred}, {"name"}, outRows, outCols, error)) << error;
+
+    ASSERT_EQ(outCols.size(), 1U);
+    EXPECT_EQ(outCols[0].name, "name");
+    ASSERT_EQ(outRows.size(), 2U);
+    EXPECT_EQ(outRows[0].size(), 1U);
+    EXPECT_EQ(outRows[0][0].strVal, "Bob");
+    EXPECT_EQ(outRows[1][0].strVal, "Carol");
+
+    cleanupFile(dbPath);
+    std::remove((dbPath + ".users.heap").c_str());
+}
+
+TEST(QueryExecutionTest, UnknownProjectionColumnFails) {
+    const std::string dbPath = tempPath("query_exec_bad_projection");
+    cleanupFile(dbPath);
+
+    Database db(dbPath);
+    ASSERT_TRUE(db.initialize());
+
+    const advdb::TableSchema schema = makeUsersSchema();
+    std::string error;
+    ASSERT_TRUE(db.createTable(schema, error));
+
+    std::vector<advdb::Row> outRows;
+    std::vector<advdb::ColumnDefinition> outCols;
+    EXPECT_FALSE(db.selectRowsProjected("users", {}, {"does_not_exist"}, outRows, outCols, error));
+    EXPECT_NE(error.find("Unknown projection column"), std::string::npos);
+
+    cleanupFile(dbPath);
+}
+

@@ -8,6 +8,7 @@ add_library(dbcore STATIC
     RecordLayout.cpp
     SlottedPage.cpp
     TableHeap.cpp
+    QueryExecution.cpp
     SqlLexer.cpp
     SqlParser.cpp
 )

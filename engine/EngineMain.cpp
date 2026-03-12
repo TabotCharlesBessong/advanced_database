@@ -228,6 +228,32 @@ std::string valueToJson(const advdb::Value& val, const advdb::ColumnDefinition& 
     return "\"" + jsonEscape(val.strVal) + "\"";
 }
 
+std::string planNodeTypeToString(advdb::PlanNodeType type) {
+    switch (type) {
+        case advdb::PlanNodeType::Scan:
+            return "scan";
+        case advdb::PlanNodeType::Filter:
+            return "filter";
+        case advdb::PlanNodeType::Project:
+            return "project";
+    }
+    return "unknown";
+}
+
+std::string planToJson(const advdb::PlanNode& node) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"" << planNodeTypeToString(node.type) << "\",\"detail\":\"" << jsonEscape(node.detail)
+        << "\",\"children\":[";
+    for (std::size_t i = 0; i < node.children.size(); ++i) {
+        if (i > 0U) {
+            oss << ',';
+        }
+        oss << planToJson(node.children[i]);
+    }
+    oss << "]}";
+    return oss.str();
+}
+
 advdb::Value sqlLiteralToValue(const advdb::SqlLiteral& lit) {
     switch (lit.kind) {
         case advdb::SqlLiteral::Kind::Null:
@@ -326,29 +352,34 @@ bool executeSql(Database& db, const std::string& sql, std::string& outJson, std:
         predicates.push_back(p);
     }
 
-    std::vector<advdb::Row> rows;
-    if (!db.selectRows(select.tableName, predicates, rows, error)) {
-        return false;
+    std::vector<std::string> projectionColumns;
+    if (!select.selectAll) {
+        projectionColumns = select.projection;
     }
 
-    advdb::TableSchema schema;
-    if (!db.getTable(select.tableName, schema, error)) {
+    std::vector<advdb::Row> rows;
+    std::vector<advdb::ColumnDefinition> outputColumns;
+
+    advdb::ExecutionEngine planner;
+    const advdb::PlanNode plan = planner.buildSelectPlan(predicates, projectionColumns);
+
+    if (!db.selectRowsProjected(select.tableName, predicates, projectionColumns, rows, outputColumns, error)) {
         return false;
     }
 
     std::ostringstream oss;
-    oss << "{\"ok\":true,\"statement\":\"select\",\"rows\":[";
+    oss << "{\"ok\":true,\"statement\":\"select\",\"plan\":" << planToJson(plan) << ",\"rows\":[";
     for (std::size_t r = 0; r < rows.size(); ++r) {
         if (r > 0U) {
             oss << ',';
         }
         oss << '{';
-        for (std::size_t c = 0; c < schema.columns.size(); ++c) {
+        for (std::size_t c = 0; c < outputColumns.size(); ++c) {
             if (c > 0U) {
                 oss << ',';
             }
-            oss << '"' << jsonEscape(schema.columns[c].name) << "\":"
-                << valueToJson(rows[r][c], schema.columns[c]);
+            oss << '"' << jsonEscape(outputColumns[c].name) << "\":"
+                << valueToJson(rows[r][c], outputColumns[c]);
         }
         oss << '}';
     }
