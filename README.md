@@ -50,6 +50,11 @@ Purpose
 * authentication
 * UI communication
 
+API style
+
+* **REST-style HTTP JSON API** for tables and row resources
+* pragmatic command endpoints for initialization and raw SQL during early phases
+
 ---
 
 ## UI
@@ -84,6 +89,29 @@ Testing
 Build system
 
 * **CMake**
+
+---
+
+# API Testing Guide
+
+The Phase 5 Week 25-26 endpoint testing guide lives in `api/README.md`.
+
+Use it for:
+
+* Postman testing for each endpoint
+* full request details including method, URL, params, headers, and body
+* example success and error outputs for each endpoint
+* automated endpoint test execution with `npm test`
+
+Quick start:
+
+```powershell
+cd api
+cmake --build ..\build --target dbcore_engine
+npm run dev
+```
+
+Then follow the Postman endpoint-by-endpoint examples in `api/README.md`.
 
 ---
 
