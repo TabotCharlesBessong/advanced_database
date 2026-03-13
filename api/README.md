@@ -1,474 +1,496 @@
-# API Layer Guide
+# Advanced Database API
 
-This folder contains the Phase 5 Week 25-26 API foundation for the database engine. The API is implemented with Express.js and forwards requests to the C++ engine binary.
+REST API for interacting with a high-performance C++ database engine. Features include transaction management, concurrency control, JWT authentication, connection pooling, prepared statements, and full OpenAPI documentation.
 
-## API Style
+## Quick Start
 
-The current API uses HTTP + JSON and follows a REST-style resource model for the main database resources:
+### Prerequisites
 
-- `GET /tables`
-- `POST /tables`
-- `GET /tables/{tableName}`
-- `GET /tables/{tableName}/rows`
-- `POST /tables/{tableName}/rows`
+- Node.js 18+ installed
+- npm installed
+- The C++ database engine running (or available at engine binary path)
 
-Two endpoints are intentionally more command-oriented for this phase:
+### Installation
 
-- `POST /init`
-- `POST /sql`
-
-Those two are pragmatic RPC-style endpoints used to bootstrap the database and execute raw SQL while the project is still in the API foundation phase. So the answer is: yes, this is a REST API in structure, with two deliberate non-resource endpoints for initialization and direct SQL execution.
-
-## Prerequisites
-
-1. Build the C++ engine:
-
-```powershell
-cmake --build ..\build --target dbcore_engine
+```bash
+cd api
+npm install
+npm run build
+npm start
 ```
 
-2. Start the API server from the `api` folder:
+The API will be available at `http://localhost:3000`
 
-```powershell
-npm run dev
-```
+### API Documentation
 
-3. The default base URL is:
+**Interactive Documentation**: Visit `http://localhost:3000/api-docs` to explore the API with Swagger UI.
 
-```text
-http://localhost:3000
-```
+## Authentication
 
-## Postman Testing Guide
+### JWT Bearer Tokens
 
-Use Postman with this base URL:
+All endpoints except `/health` and `/auth/login` require authentication via JWT bearer tokens.
 
-```text
-http://localhost:3000
-```
+#### Obtain a Token
 
-Common headers for JSON endpoints:
-
-```text
+```http
+POST /auth/login
 Content-Type: application/json
-Accept: application/json
+
+{
+  "username": "admin",
+  "password": "password123"
+}
 ```
 
-Recommended execution order in Postman:
-
-1. `GET /health`
-2. `POST /init`
-3. `POST /tables`
-4. `GET /tables`
-5. `GET /tables/{tableName}`
-6. `POST /tables/{tableName}/rows`
-7. `GET /tables/{tableName}/rows`
-8. `POST /sql`
-
-### 1. Health Check
-
-Method: `GET`
-
-URL:
-
-```text
-http://localhost:3000/health
+Response:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresIn": "24h",
+  "user": { "username": "admin" }
+}
 ```
 
-Query params: none
+#### Use Token in Requests
 
-Body: none
+Add the token to the `Authorization` header of subsequent requests:
 
-Expected output:
+```http
+GET /tables
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
 
+In Postman:
+1. Copy the token from login response
+2. Go to the request's **Auth** tab
+3. Select "Bearer Token" type
+4. Paste the token in the **Token** field
+
+## Connection Pooling
+
+The API uses an intelligent connection pool to manage multiple database connections:
+
+- **Min connections**: 2 (always available)
+- **Max connections**: 10 (scales up under load)
+- **Idle timeout**: 30 seconds (unused connections are recycled)
+
+### Check Pool Status
+
+```http
+GET /stats/pool
+Authorization: Bearer <token>
+```
+
+Response:
+```json
+{
+  "totalConnections": 5,
+  "inUse": 2,
+  "idle": 3,
+  "waitingRequests": 0,
+  "poolSize": { "min": 2, "max": 10 }
+}
+```
+
+## Prepared Statements
+
+Prepared statements prevent SQL injection and improve performance for repeated queries.
+
+### Step 1: Prepare a Statement
+
+```http
+POST /prepare
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "sql": "SELECT * FROM users WHERE id = ? AND active = ?"
+}
+```
+
+Response:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "sql": "SELECT * FROM users WHERE id = ? AND active = ?",
+  "paramCount": 2,
+  "paramTypes": ["unknown", "unknown"]
+}
+```
+
+### Step 2: Execute with Parameters
+
+```http
+POST /execute
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "statementId": "550e8400-e29b-41d4-a716-446655440000",
+  "parameters": [1, true]
+}
+```
+
+Response:
+```json
+[
+  { "id": 1, "name": "Ada", "active": true }
+]
+```
+
+**Parameter Safety**: Parameters are properly escaped to prevent SQL injection. Type coercion is automatic:
+- Numbers passed as-is
+- Strings escaped and quoted
+- Booleans converted to 1/0
+- null becomes NULL
+
+## REST API Endpoints
+
+### System Endpoints
+
+#### GET /health
+Check API and database engine health.
+
+```http
+GET /health
+```
+
+Response (200 OK):
 ```json
 {
   "ok": true,
-  "service": "advanced-database-api"
+  "service": "advanced-database-api",
+  "timestamp": "2025-01-01T12:00:00.000Z"
 }
 ```
 
-### 2. Initialize Database
+### Table Management
 
-Method: `POST`
+#### POST /tables
+Create a new table.
 
-URL:
+```http
+POST /tables
+Authorization: Bearer <token>
+Content-Type: application/json
 
-```text
-http://localhost:3000/init
-```
-
-Query params: none
-
-Body: none
-
-Expected output:
-
-```json
-{
-  "ok": true
-}
-```
-
-### 3. Create Table
-
-Method: `POST`
-
-URL:
-
-```text
-http://localhost:3000/tables
-```
-
-Query params: none
-
-Body type: `raw` -> `JSON`
-
-Body:
-
-```json
 {
   "name": "users",
   "columns": [
-    { "name": "id", "type": "int" },
-    { "name": "name", "type": "varchar", "length": 100 },
-    { "name": "email", "type": "text", "nullable": true }
+    { "name": "id", "type": "INT" },
+    { "name": "name", "type": "TEXT" },
+    { "name": "email", "type": "TEXT" }
   ]
 }
 ```
 
-Expected output:
-
+Response (200 OK):
 ```json
-{
-  "ok": true,
-  "table": "users"
-}
+{ "ok": true }
 ```
 
-Validation notes:
-- `name` must be a non-empty string
-- `columns` must contain at least one valid column definition
-- allowed types are `int`, `text`, `varchar`
-- if `length` is provided, it must be a positive integer
+#### GET /tables
+List all tables in the database.
 
-Example invalid request body:
+```http
+GET /tables
+Authorization: Bearer <token>
+```
 
+Response (200 OK):
 ```json
-{
-  "name": "users",
-  "columns": []
-}
-```
-
-Example error output:
-
-```json
-{
-  "ok": false,
-  "error": "Request body must include name and at least one valid column definition"
-}
-```
-
-### 4. List Tables
-
-Method: `GET`
-
-URL:
-
-```text
-http://localhost:3000/tables
-```
-
-Query params: none
-
-Body: none
-
-Example output:
-
-```json
-{
-  "ok": true,
-  "tables": ["users"]
-}
-```
-
-### 5. Describe Table
-
-Method: `GET`
-
-URL:
-
-```text
-http://localhost:3000/tables/users
-```
-
-Path params:
-- `tableName = users`
-
-Query params: none
-
-Body: none
-
-Example output:
-
-```json
-{
-  "ok": true,
-  "table": "users",
-  "columns": [
-    { "name": "id", "type": "int", "nullable": false },
-    { "name": "name", "type": "varchar(100)", "nullable": false },
-    { "name": "email", "type": "text", "nullable": true }
-  ]
-}
-```
-
-Note: the exact column payload depends on the current C++ engine JSON contract.
-
-### 6. Insert Row
-
-Method: `POST`
-
-URL:
-
-```text
-http://localhost:3000/tables/users/rows
-```
-
-Path params:
-- `tableName = users`
-
-Query params: none
-
-Body type: `raw` -> `JSON`
-
-Body:
-
-```json
-{
-  "values": {
-    "id": 1,
-    "name": "Ada",
-    "email": "ada@example.com"
+[
+  {
+    "name": "users",
+    "columns": [
+      { "name": "id", "type": "INT" },
+      { "name": "name", "type": "TEXT" }
+    ],
+    "rowCount": 42
   }
+]
+```
+
+#### GET /tables/:tableName
+Describe a specific table's schema.
+
+```http
+GET /tables/users
+Authorization: Bearer <token>
+```
+
+Response (200 OK):
+```json
+{
+  "name": "users",
+  "columns": [
+    { "name": "id", "type": "INT" },
+    { "name": "name", "type": "TEXT" },
+    { "name": "email", "type": "TEXT" }
+  ],
+  "rowCount": 42
 }
 ```
 
-Expected output:
+### Row Operations
+
+#### GET /tables/:tableName/rows
+Select rows from a table with optional filtering.
+
+```http
+GET /tables/users/rows
+Authorization: Bearer <token>
+```
+
+Query parameters:
+- `condition` (optional): WHERE clause condition, e.g., "id > 5"
+
+Example with filter:
+```http
+GET /tables/users/rows?condition=id%20%3E%205
+```
+
+Response (200 OK):
+```json
+[
+  { "id": 6, "name": "Bob", "email": "bob@example.com" },
+  { "id": 7, "name": "Carol", "email": "carol@example.com" }
+]
+```
+
+#### POST /tables/:tableName/rows
+Insert a new row into a table.
+
+```http
+POST /tables/users/rows
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "id": 43,
+  "name": "David",
+  "email": "david@example.com"
+}
+```
+
+Response (200 OK):
+```json
+{ "ok": true }
+```
+
+### Advanced Query
+
+#### POST /sql
+Execute raw SQL commands (for advanced queries not covered by REST endpoints).
+
+```http
+POST /sql
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "sql": "SELECT COUNT(*) as count FROM users WHERE active = 1"
+}
+```
+
+Response (200 OK):
+```json
+[
+  { "count": 35 }
+]
+```
+
+Warning: Avoid using this endpoint for user input without proper validation. Use **prepared statements** for parameterized queries instead.
+
+#### POST /init
+Initialize the database engine for the current session.
+
+```http
+POST /init
+Authorization: Bearer <token>
+```
+
+Response (200 OK):
+```json
+{ "ok": true }
+```
+
+## Testing with Postman
+
+### Recommended Test Sequence
+
+1. **Login** (POST /auth/login)
+   - Obtain JWT token
+   - Save token for subsequent requests
+
+2. **Check Health** (GET /health)
+   - Verify API is running
+   - *No auth required*
+
+3. **Initialize Database** (POST /init)
+   - Set up database engine for session
+   - *Auth required*
+
+4. **Create Table** (POST /tables)
+   - Define schema: `users` table
+   - Columns: id (INT), name (TEXT), email (TEXT)
+   - *Auth required*
+
+5. **List Tables** (GET /tables)
+   - Verify table creation
+   - *Auth required*
+
+6. **Describe Table** (GET /tables/users)
+   - Check column definitions
+   - *Auth required*
+
+7. **Insert Rows** (POST /tables/users/rows)
+   - Add test data
+   - Insert 3-5 rows for testing
+   - *Auth required*
+
+8. **Select Rows** (GET /tables/users/rows)
+   - Retrieve all rows
+   - Try with `condition` filter
+   - *Auth required*
+
+9. **Prepared Statement** (POST /prepare)
+   - Prepare: "SELECT * FROM users WHERE id = ?"
+   - Save returned statement ID
+   - *Auth required*
+
+10. **Execute Prepared** (POST /execute)
+    - Execute with different parameter values
+    - Verify SQL injection prevention
+    - *Auth required*
+
+11. **Pool Stats** (GET /stats/pool)
+    - Monitor connection pool
+    - *Auth required*
+
+12. **Raw SQL** (POST /sql)
+    - Execute COUNT(*) query
+    - *Auth required*
+
+### Postman Environment Setup
+
+Create a Postman environment with these variables:
+
+| Variable | Value | Type |
+|----------|-------|------|
+| `baseUrl` | `http://localhost:3000` | string |
+| `token` | *(obtained from login)* | string |
+| `tableName` | `users` | string |
+
+Then use `{{baseUrl}}`, `{{token}}`, `{{tableName}}` in request URLs and headers.
+
+## REST API Style
+
+This API follows REST principles for **resource operations** (tables, rows) while including pragmatic **command endpoints** for initialization and raw SQL:
+
+**REST Endpoints** (resource-oriented):
+- `GET /tables` - List collections
+- `POST /tables` - Create resource
+- `GET /tables/:id` - Retrieve specific resource
+- `GET /tables/:id/rows` - Retrieve sub-resources
+- `POST /tables/:id/rows` - Create sub-resource
+
+**Command Endpoints** (RPC-style, for MVP):
+- `POST /init` - Initialize session
+- `POST /sql` - Execute arbitrary SQL
+- `POST /prepare` - Prepare statement
+- `POST /execute` - Execute prepared statement
+
+This hybrid approach balances REST principles with practical database flexibility.
+
+## Error Handling
+
+All endpoints return JSON error responses:
 
 ```json
 {
-  "ok": true,
-  "statement": "insert"
+  "error": "Descriptive error message"
 }
 ```
 
-Example invalid request body:
+**Status Codes**:
+- `200 OK` - Request succeeded
+- `400 Bad Request` - Invalid input (validation error)
+- `401 Unauthorized` - Missing or invalid authentication token
+- `404 Not Found` - Resource or endpoint not found
+- `500 Internal Server Error` - Server error
+
+## Security
+
+### Production Deployment
+
+⚠️ **Important**: The default dev mode accepts any username/password for `/auth/login`. For production:
+
+1. Implement proper password hashing (bcrypt)
+2. Store credentials in a secure database
+3. Set a strong `JWT_SECRET` environment variable
+4. Use HTTPS for all traffic
+5. Add rate limiting to `/auth/login`
+6. Consider adding request signing for audit trails
+
+Environment variables:
+```bash
+JWT_SECRET=your-secret-key-min-32-chars
+JWT_EXPIRY=24h
+NODE_ENV=production
+```
+
+## Development
+
+### Scripts
+
+```bash
+npm run build     # Compile TypeScript
+npm test          # Run Jest tests
+npm start         # Start production server
+npm run dev       # Start with nodemon (auto-reload)
+```
+
+### Project Structure
+
+```
+api/
+├── app.ts                    # Express app factory with routes
+├── auth.ts                   # JWT authentication middleware
+├── engineClient.ts           # C++ engine binary bridge
+├── pool.ts                   # Connection pool manager
+├── prepared-statements.ts    # Prepared statement registry
+├── swagger-config.ts         # OpenAPI spec generation
+├── validation.ts             # Request validation guards
+├── index.ts                  # Server entry point
+├── Database.test.ts          # Jest test suite
+├── package.json
+├── tsconfig.json
+└── README.md                 # This file
+```
+
+## Monitoring
+
+### Pool Statistics
+
+The `/stats/pool` endpoint provides real-time connection pool metrics:
 
 ```json
 {
-  "values": {}
+  "totalConnections": 3,
+  "inUse": 1,
+  "idle": 2,
+  "waitingRequests": 0,
+  "poolSize": { "min": 2, "max": 10 }
 }
 ```
 
-Example error output:
+Use these metrics to detect connection bottlenecks or pool exhaustion.
 
-```json
-{
-  "ok": false,
-  "error": "Request body must include a non-empty values object"
-}
-```
+## Support
 
-### 7. Select Rows
-
-Method: `GET`
-
-URL without filters:
-
-```text
-http://localhost:3000/tables/users/rows
-```
-
-URL with filters:
-
-```text
-http://localhost:3000/tables/users/rows?column=id&op=gte&value=1
-```
-
-Path params:
-- `tableName = users`
-
-Optional query params:
-- `column`
-- `op` = `eq`, `neq`, `lt`, `lte`, `gt`, `gte`
-- `value`
-
-Body: none
-
-Example output:
-
-```json
-{
-  "ok": true,
-  "statement": "select",
-  "rows": [
-    {
-      "id": 1,
-      "name": "Ada",
-      "email": "ada@example.com"
-    }
-  ]
-}
-```
-
-Example invalid params:
-- `column=id` without `value`
-
-Example error output:
-
-```json
-{
-  "ok": false,
-  "error": "Query parameters column and value are required together"
-}
-```
-
-### 8. Execute SQL
-
-Method: `POST`
-
-URL:
-
-```text
-http://localhost:3000/sql
-```
-
-Query params: none
-
-Body type: `raw` -> `JSON`
-
-Body:
-
-```json
-{
-  "sql": "SELECT * FROM users"
-}
-```
-
-Example output:
-
-```json
-{
-  "ok": true,
-  "statement": "select",
-  "rows": [
-    {
-      "id": 1,
-      "name": "Ada",
-      "email": "ada@example.com"
-    }
-  ]
-}
-```
-
-Example invalid request body:
-
-```json
-{
-  "sql": ""
-}
-```
-
-Example error output:
-
-```json
-{
-  "ok": false,
-  "error": "Request body must include a non-empty sql string"
-}
-```
-
-### 9. Invalid JSON Example
-
-Method: `POST`
-
-URL:
-
-```text
-http://localhost:3000/sql
-```
-
-Body type: `raw` -> `JSON`
-
-Broken body:
-
-```json
-{"sql":
-```
-
-Expected output:
-
-```json
-{
-  "ok": false,
-  "error": "Invalid JSON body"
-}
-```
-
-### 10. Unknown Route Example
-
-Method: `GET`
-
-URL:
-
-```text
-http://localhost:3000/missing
-```
-
-Expected output:
-
-```json
-{
-  "ok": false,
-  "error": "Route not found"
-}
-```
-
-## Automated Tests
-
-Run the endpoint test suite from the `api` folder:
-
-```powershell
-npm test
-```
-
-The Jest suite covers every Week 25-26 endpoint, invalid JSON handling, validation failures, and the 404 JSON contract.
-
-## Postman Setup Notes
-
-In Postman, create an environment with:
-
-```text
-baseUrl = http://localhost:3000
-tableName = users
-```
-
-Then use URLs like:
-
-```text
-{{baseUrl}}/tables/{{tableName}}/rows
-```
-
-For the JSON endpoints, choose:
-- Body -> `raw`
-- Format -> `JSON`
-
-For filtered row reads, use the Params tab:
-
-```text
-column = id
-op = gte
-value = 1
-```
+For issues or questions:
+1. Check the Swagger UI at `/api-docs` for detailed endpoint specs
+2. Review test cases in `Database.test.ts` for example usage
+3. Check server logs for error details
