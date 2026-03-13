@@ -12,6 +12,10 @@ export interface LoginResponse {
   };
 }
 
+export interface SignupResponse extends LoginResponse {
+  message: string;
+}
+
 export interface ApiResult<T> {
   ok: boolean;
   data?: T;
@@ -50,6 +54,19 @@ async function apiFetch<T>(
 
 export async function login(config: ConnectionConfig): Promise<ApiResult<LoginResponse>> {
   return apiFetch<LoginResponse>(`${config.baseUrl}/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username: config.username,
+      password: config.password,
+    }),
+  });
+}
+
+export async function signup(config: ConnectionConfig): Promise<ApiResult<SignupResponse>> {
+  return apiFetch<SignupResponse>(`${config.baseUrl}/auth/signup`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
