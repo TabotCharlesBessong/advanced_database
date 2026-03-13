@@ -154,11 +154,72 @@ h1 {
   gap: 0.7rem;
 }
 
+.onboarding {
+  background: #fff7eb;
+  border: 1px solid #efd3ad;
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.onboarding p {
+  margin: 0 0 0.3rem;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.onboarding ol {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.auth-mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.auth-mode-toggle .secondary {
+  border: 1px solid #cfd6da;
+}
+
+.auth-mode-toggle .secondary.active {
+  background: #27333a;
+  color: white;
+}
+
 label {
   display: grid;
   gap: 0.35rem;
   font-size: 0.88rem;
   color: var(--muted);
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+}
+
+.inline-toggle {
+  min-width: 64px;
+  padding: 0.6rem 0.5rem;
+  background: #e7ecef;
+  color: #2e3b43;
+  font-size: 0.82rem;
+}
+
+.inline-toggle:hover {
+  background: #d9e0e4;
+}
+
+.error-text {
+  color: var(--warn);
+  font-size: 0.78rem;
 }
 
 input,

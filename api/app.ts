@@ -22,8 +22,39 @@ interface AppDependencies {
   statementRegistry?: PreparedStatementRegistry;
 }
 
+interface AuthCredentials {
+  username: string;
+  password: string;
+}
+
+const users = new Map<string, string>([
+  ['admin', 'password123'],
+  ['testuser', 'testpass'],
+]);
+
 function sendValidationError(res: Response, error: string): void {
   res.status(400).json({ ok: false, error });
+}
+
+function parseAuthCredentials(body: unknown): AuthCredentials | null {
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+
+  const candidate = body as Record<string, unknown>;
+  if (
+    typeof candidate.username !== 'string' ||
+    candidate.username.trim() === '' ||
+    typeof candidate.password !== 'string' ||
+    candidate.password.trim() === ''
+  ) {
+    return null;
+  }
+
+  return {
+    username: candidate.username.trim(),
+    password: candidate.password,
+  };
 }
 
 export function createApp(dependencies: AppDependencies = {}) {
@@ -33,6 +64,22 @@ export function createApp(dependencies: AppDependencies = {}) {
   const app = express();
 
   // Middleware
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header(
+      'Access-Control-Allow-Headers',
+      'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+    );
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+
+    next();
+  });
+
   app.use(express.json());
 
   // Swagger/OpenAPI documentation
@@ -53,21 +100,51 @@ export function createApp(dependencies: AppDependencies = {}) {
 
   // Authentication endpoint
   app.post('/auth/login', (req, res) => {
-    const { username, password } = req.body;
-
-    // Simple auth for development (in production, use proper password hashing + database)
-    if (!username || !password) {
+    const credentials = parseAuthCredentials(req.body);
+    if (!credentials) {
       res.status(400).json({ error: 'Username and password required' });
       return;
     }
 
-    // Accept any non-empty credentials in dev mode
-    // In production: hash verification, user database lookup, etc.
-    const token = generateToken(username, username);
+    const storedPassword = users.get(credentials.username);
+    if (!storedPassword || storedPassword !== credentials.password) {
+      res.status(401).json({ error: 'Invalid username or password' });
+      return;
+    }
+
+    const token = generateToken(credentials.username, credentials.username);
     res.status(200).json({
       token,
       expiresIn: '24h',
-      user: { username },
+      user: { username: credentials.username },
+    });
+  });
+
+  app.post('/auth/signup', (req, res) => {
+    const credentials = parseAuthCredentials(req.body);
+    if (!credentials) {
+      res.status(400).json({ error: 'Username and password required' });
+      return;
+    }
+
+    if (credentials.password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
+
+    if (users.has(credentials.username)) {
+      res.status(409).json({ error: 'Username already exists' });
+      return;
+    }
+
+    users.set(credentials.username, credentials.password);
+
+    const token = generateToken(credentials.username, credentials.username);
+    res.status(201).json({
+      token,
+      expiresIn: '24h',
+      user: { username: credentials.username },
+      message: 'Account created successfully',
     });
   });
 

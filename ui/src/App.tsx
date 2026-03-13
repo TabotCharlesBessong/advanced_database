@@ -4,6 +4,7 @@ import {
   executeSql,
   initializeDatabase,
   login,
+  signup,
 } from './api/client';
 import { ConnectionPanel } from './components/ConnectionPanel';
 import { QueryResult } from './components/QueryResult';
@@ -60,6 +61,34 @@ export function App() {
       username: loginResponse.data.user.username,
     });
     setStatusMessage(`Connected as ${loginResponse.data.user.username}`);
+    setBusy(false);
+  };
+
+  const handleSignup = async (config: ConnectionConfig) => {
+    setBusy(true);
+    setStatusMessage('Creating account...');
+
+    const signupResponse = await signup(config);
+    if (!signupResponse.ok || !signupResponse.data) {
+      setStatusMessage(`Signup failed: ${signupResponse.error}`);
+      setBusy(false);
+      return;
+    }
+
+    setStatusMessage('Account created. Initializing database...');
+    const initResponse = await initializeDatabase(config.baseUrl, signupResponse.data.token);
+    if (!initResponse.ok) {
+      setStatusMessage(`Signup succeeded, but init failed: ${initResponse.error}`);
+      setBusy(false);
+      return;
+    }
+
+    setSession({
+      baseUrl: config.baseUrl,
+      token: signupResponse.data.token,
+      username: signupResponse.data.user.username,
+    });
+    setStatusMessage(`Welcome, ${signupResponse.data.user.username}. You're connected.`);
     setBusy(false);
   };
 
@@ -123,6 +152,7 @@ export function App() {
             busy={busy}
             isConnected={connected}
             onConnect={handleConnect}
+            onSignup={handleSignup}
             onDisconnect={handleDisconnect}
             defaultUrl={DEFAULT_API_URL}
           />
