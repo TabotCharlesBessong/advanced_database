@@ -22,6 +22,37 @@ export interface ApiResult<T> {
   error?: string;
 }
 
+export interface TableColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+
+export interface TableSchema {
+  name: string;
+  columns: TableColumn[];
+}
+
+export interface ListTablesResponse {
+  ok: boolean;
+  tables: string[];
+}
+
+export interface DescribeTableResponse {
+  ok: boolean;
+  table: TableSchema;
+}
+
+export interface RowsResponse {
+  ok: boolean;
+  rows: Array<Record<string, string | number | null>>;
+}
+
+export interface InsertRowResponse {
+  ok: boolean;
+  table: string;
+}
+
 const DEFAULT_TIMEOUT_MS = 10000;
 
 async function apiFetch<T>(
@@ -100,4 +131,67 @@ export async function executeSql(
     },
     body: JSON.stringify({ sql }),
   });
+}
+
+export async function listTables(
+  baseUrl: string,
+  token: string
+): Promise<ApiResult<ListTablesResponse>> {
+  return apiFetch<ListTablesResponse>(`${baseUrl}/tables`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+export async function describeTable(
+  baseUrl: string,
+  token: string,
+  tableName: string
+): Promise<ApiResult<DescribeTableResponse>> {
+  return apiFetch<DescribeTableResponse>(
+    `${baseUrl}/tables/${encodeURIComponent(tableName)}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+}
+
+export async function getTableRows(
+  baseUrl: string,
+  token: string,
+  tableName: string
+): Promise<ApiResult<RowsResponse>> {
+  return apiFetch<RowsResponse>(
+    `${baseUrl}/tables/${encodeURIComponent(tableName)}/rows`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+}
+
+export async function insertTableRow(
+  baseUrl: string,
+  token: string,
+  tableName: string,
+  values: Record<string, string | number | null>
+): Promise<ApiResult<InsertRowResponse>> {
+  return apiFetch<InsertRowResponse>(
+    `${baseUrl}/tables/${encodeURIComponent(tableName)}/rows`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ values }),
+    }
+  );
 }
