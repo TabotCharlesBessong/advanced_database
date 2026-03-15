@@ -16,6 +16,8 @@ add_library(dbcore STATIC
     BTreeIndex.cpp
     IndexManager.cpp
     TransactionManager.cpp
+    LockManager.cpp
+    MvccManager.cpp
 )
 
 target_include_directories(dbcore PUBLIC ..)
