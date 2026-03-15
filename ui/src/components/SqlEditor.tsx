@@ -1,16 +1,24 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent } from 'react';
 
 interface SqlEditorProps {
   busy: boolean;
   disabled: boolean;
+  sql: string;
+  wrapSql: boolean;
+  fontSize: number;
+  onChange: (sql: string) => void;
   onRun: (sql: string) => Promise<void>;
 }
 
-const STARTER_SQL = `SELECT * FROM users;`;
-
-export function SqlEditor({ busy, disabled, onRun }: SqlEditorProps) {
-  const [sql, setSql] = useState(STARTER_SQL);
-
+export function SqlEditor({
+  busy,
+  disabled,
+  sql,
+  wrapSql,
+  fontSize,
+  onChange,
+  onRun,
+}: SqlEditorProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await onRun(sql);
@@ -26,11 +34,12 @@ export function SqlEditor({ busy, disabled, onRun }: SqlEditorProps) {
       <form onSubmit={handleSubmit} className="sql-form">
         <textarea
           value={sql}
-          onChange={(e) => setSql(e.target.value)}
+          onChange={(e) => onChange(e.target.value)}
           spellCheck={false}
           disabled={disabled || busy}
           placeholder="Write SQL here..."
           aria-label="SQL editor"
+          style={{ fontSize: `${fontSize}px`, whiteSpace: wrapSql ? 'pre-wrap' : 'pre' }}
         />
 
         <div className="button-row">
