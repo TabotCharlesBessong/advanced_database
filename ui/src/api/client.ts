@@ -20,6 +20,8 @@ export interface ApiResult<T> {
   ok: boolean;
   data?: T;
   error?: string;
+  statusCode?: number;
+  durationMs: number;
 }
 
 export interface TableColumn {
@@ -62,22 +64,33 @@ async function apiFetch<T>(
 ): Promise<ApiResult<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = performance.now();
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
     const data = await response.json().catch(() => ({}));
+    const durationMs = Math.round(performance.now() - startedAt);
 
     if (!response.ok) {
       const error = typeof data?.error === 'string' ? data.error : `HTTP ${response.status}`;
-      return { ok: false, error };
+      return { ok: false, error, statusCode: response.status, durationMs };
     }
 
-    return { ok: true, data: data as T };
+    return { ok: true, data: data as T, statusCode: response.status, durationMs };
   } catch (error) {
+    const durationMs = Math.round(performance.now() - startedAt);
     if (error instanceof DOMException && error.name === 'AbortError') {
-      return { ok: false, error: 'Request timed out. Please check the API URL.' };
+      return {
+        ok: false,
+        error: 'Request timed out. Please check the API URL.',
+        durationMs,
+      };
     }
-    return { ok: false, error: error instanceof Error ? error.message : 'Network error' };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Network error',
+      durationMs,
+    };
   } finally {
     clearTimeout(timeout);
   }
