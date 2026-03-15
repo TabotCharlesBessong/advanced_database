@@ -98,6 +98,33 @@ function parseEngineBody(stdout: string): unknown {
   try {
     return JSON.parse(trimmed);
   } catch {
+    // Some engine commands can print informational lines before the JSON payload.
+    // Try to parse the trailing section(s) as JSON before surfacing an error.
+    const lines = trimmed
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    for (let i = 0; i < lines.length; i += 1) {
+      const candidate = lines.slice(i).join('\n');
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        // Continue trying smaller leading trims.
+      }
+    }
+
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = trimmed.slice(firstBrace, lastBrace + 1);
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        // Fall through to the original error for debugging visibility.
+      }
+    }
+
     return { ok: false, error: `Invalid JSON from C++ engine: ${trimmed}` };
   }
 }
