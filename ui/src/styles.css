@@ -327,6 +327,20 @@ button:disabled {
   gap: 1rem;
 }
 
+.query-workspace,
+.insights-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1rem;
+}
+
+.query-main,
+.query-sidepanels {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
 .browser-main {
   display: grid;
   gap: 1rem;
@@ -338,6 +352,158 @@ button:disabled {
   padding: 0;
   display: grid;
   gap: 0.45rem;
+}
+
+.utility-panel {
+  align-self: start;
+}
+
+.library-section {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.library-section + .library-section {
+  margin-top: 1rem;
+}
+
+.library-section h3 {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.stack-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.compact-list {
+  gap: 0.45rem;
+}
+
+.stack-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.stack-item p {
+  margin: 0.18rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.history-item {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.history-sql {
+  font-family: 'IBM Plex Mono', Consolas, monospace;
+  color: #2a353c;
+}
+
+.mini-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.16rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.mini-badge.success {
+  background: #dcf5eb;
+  color: var(--ok);
+}
+
+.mini-badge.error {
+  background: #ffe6df;
+  color: var(--warn);
+}
+
+.danger {
+  background: #f3d5d0;
+  color: #832e22;
+}
+
+.danger:hover {
+  background: #e7c0b9;
+}
+
+.no-margin {
+  margin-bottom: 0;
+}
+
+.import-box {
+  margin-bottom: 0.8rem;
+}
+
+.file-field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.file-field input[type='file'] {
+  padding: 0.45rem;
+  background: #fff;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+}
+
+.setting-caption {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.metric-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.metric-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.7rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.metric-card span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.metric-card strong {
+  font-size: 1.05rem;
+}
+
+.compact-grid {
+  min-width: 620px;
 }
 
 .table-item {
@@ -484,6 +650,15 @@ button:disabled {
   }
 
   .browser-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .query-workspace,
+  .insights-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .history-item {
     grid-template-columns: 1fr;
   }
 }
