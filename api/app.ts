@@ -125,6 +125,16 @@ export function createApp(dependencies: AppDependencies = {}) {
   const userDatabaseSelections = new Map<string, string>();
   const app = express();
 
+  // CORS configuration
+  const corsAllowedOriginsEnv = process.env.CORS_ALLOWED_ORIGINS;
+  const corsAllowedOrigins = corsAllowedOriginsEnv
+    ? corsAllowedOriginsEnv
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter((origin) => origin.length > 0)
+    : [];
+  const isDevMode = process.env.NODE_ENV === 'development';
+
   const getCurrentDatabase = (username?: string): string => {
     if (!username) {
       return 'advanced';
@@ -151,12 +161,33 @@ export function createApp(dependencies: AppDependencies = {}) {
 
   // Middleware
   app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header(
-      'Access-Control-Allow-Headers',
-      'Origin, X-Requested-With, Content-Type, Accept, Authorization'
-    );
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    const requestOrigin = req.headers.origin as string | undefined;
+
+    let allowOriginHeader: string | undefined;
+    if (isDevMode && corsAllowedOrigins.length === 0) {
+      // Explicitly allow all origins only in development when no allowlist is configured.
+      allowOriginHeader = '*';
+    } else if (
+      requestOrigin &&
+      corsAllowedOrigins.includes(requestOrigin)
+    ) {
+      // Echo back the allowed origin from the configured allowlist.
+      allowOriginHeader = requestOrigin;
+    }
+
+    if (allowOriginHeader) {
+      res.header('Access-Control-Allow-Origin', allowOriginHeader);
+      // Ensure caches differentiate responses by Origin.
+      res.header('Vary', 'Origin');
+      res.header(
+        'Access-Control-Allow-Headers',
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+      );
+      res.header(
+        'Access-Control-Allow-Methods',
+        'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+      );
+    }
 
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
