@@ -579,8 +579,16 @@ describe('Phase 5 Week 27-28 API endpoints', () => {
     });
 
     test('POST /sql supports CREATE DATABASE command', async () => {
+      const pool = createMockPool();
+      const mockClient = createMockEngineClient();
+      mockClient.executeSql.mockReturnValue({
+        status: 200,
+        body: { ok: true, statement: 'create_database', database: 'school' },
+      });
+      (pool.acquire as jest.Mock).mockResolvedValue(mockClient);
+
       const app = createApp({
-        pool: createMockPool(),
+        pool,
         statementRegistry: new PreparedStatementRegistry(),
       });
 
@@ -602,8 +610,21 @@ describe('Phase 5 Week 27-28 API endpoints', () => {
     });
 
     test('POST /sql supports USE command after database creation', async () => {
+      const pool = createMockPool();
+      const mockClient = createMockEngineClient();
+      mockClient.executeSql
+        .mockReturnValueOnce({
+          status: 200,
+          body: { ok: true, statement: 'create_database', database: 'school' },
+        })
+        .mockReturnValueOnce({
+          status: 200,
+          body: { ok: true, statement: 'use_database', database: 'school' },
+        });
+      (pool.acquire as jest.Mock).mockResolvedValue(mockClient);
+
       const app = createApp({
-        pool: createMockPool(),
+        pool,
         statementRegistry: new PreparedStatementRegistry(),
       });
 
