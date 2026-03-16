@@ -669,13 +669,48 @@ function getDatabasePath(repoRoot: string, databaseName: string): string {
   return path.resolve(dbDir, `${databaseName}.db`);
 }
 
+function stripLineCommentsPreservingStrings(line: string): string {
+  let inString = false;
+  let quoteChar: string | null = null;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    const next = i + 1 < line.length ? line[i + 1] : undefined;
+
+    if (inString) {
+      // Handle end of string, including doubled quotes (e.g., '' inside a single-quoted string).
+      if (ch === quoteChar) {
+        if (next === quoteChar) {
+          // Escaped quote inside string, skip the second quote.
+          i++;
+          continue;
+        }
+        inString = false;
+        quoteChar = null;
+      }
+      continue;
+    }
+
+    // Not currently inside a string literal.
+    if (ch === '\'' || ch === '"') {
+      inString = true;
+      quoteChar = ch;
+      continue;
+    }
+
+    // Detect start of a line comment only when not inside a string.
+    if (ch === '-' && next === '-') {
+      return line.slice(0, i);
+    }
+  }
+
+  return line;
+}
+
 function stripSqlLineComments(sql: string): string {
   return sql
     .split(/\r?\n/)
-    .map((line) => {
-      const idx = line.indexOf('--');
-      return idx >= 0 ? line.slice(0, idx) : line;
-    })
+    .map((line) => stripLineCommentsPreservingStrings(line))
     .join('\n');
 }
 
