@@ -237,6 +237,17 @@ export function createApp(dependencies: AppDependencies = {}) {
     const createDatabase = parseCreateDatabaseCommand(req.body.sql);
     if (createDatabase) {
       const dbPath = getDatabasePath(repoRoot, createDatabase);
+
+      if (existsSync(dbPath)) {
+        res
+          .status(409)
+          .json({
+            ok: false,
+            error: `Database already exists: ${createDatabase}`,
+          });
+        return;
+      }
+
       const dbClient = createEngineClient({ repoRoot, dbPath });
       const initResult = dbClient.init();
 
