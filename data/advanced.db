@@ -1,1 +1,3 @@
-ADVDB001
+# Placeholder file: not a runtime database.
+# If you need a real database, generate it at runtime and do not commit it.
+# This file exists only to satisfy tooling/tests as a documented fixture.
