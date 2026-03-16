@@ -58,10 +58,39 @@ interface ErRelation {
   kind: 'inferred';
 }
 
-const users = new Map<string, string>([
-  ['admin', 'password123'],
-  ['testuser', 'testpass'],
-]);
+function loadUsersFromEnv(): Map<string, string> {
+  const users = new Map<string, string>();
+
+  const rawConfig = process.env.DEMO_USERS;
+  if (!rawConfig) {
+    return users;
+  }
+
+  try {
+    const parsed = JSON.parse(rawConfig);
+    if (Array.isArray(parsed)) {
+      for (const entry of parsed) {
+        if (
+          entry &&
+          typeof entry === 'object' &&
+          typeof (entry as any).username === 'string' &&
+          typeof (entry as any).password === 'string'
+        ) {
+          users.set(
+            (entry as any).username.trim(),
+            (entry as any).password
+          );
+        }
+      }
+    }
+  } catch {
+    // Invalid DEMO_USERS configuration; leave users map empty.
+  }
+
+  return users;
+}
+
+const users = loadUsersFromEnv();
 
 function sendValidationError(res: Response, error: string): void {
   res.status(400).json({ ok: false, error });
