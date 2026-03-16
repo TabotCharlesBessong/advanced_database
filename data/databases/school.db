@@ -1,1 +1,8 @@
-ADVDB001
+# Placeholder for the application database file.
+# 
+# This file is intentionally kept as a text fixture to document the expected
+# database location (data/databases/school.db).
+#
+# Do NOT commit runtime-generated *.db or *.wal files to version control.
+# The real database should be created or migrated at runtime or via
+# dedicated setup/migration scripts.
