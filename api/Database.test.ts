@@ -426,7 +426,7 @@ describe('Phase 5 Week 27-28 API endpoints', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toMatchObject({ ok: true, database: 'advanced' });
       expect(mockClient.init).toHaveBeenCalledTimes(1);
     });
 
@@ -484,8 +484,289 @@ describe('Phase 5 Week 27-28 API endpoints', () => {
         .send({ sql: 'SELECT * FROM users' });
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true, statement: 'select' });
+      expect(response.body).toMatchObject({
+        ok: true,
+        statement: 'select',
+        database: 'advanced',
+        warnings: [],
+      });
       expect(mockClient.executeSql).toHaveBeenCalledWith('SELECT * FROM users');
+    });
+
+    test('POST /sql normalizes unsupported CREATE TABLE tokens for compatibility', async () => {
+      const pool = createMockPool();
+      const mockClient = createMockEngineClient();
+      mockClient.executeSql.mockReturnValue({
+        status: 200,
+        body: { ok: true, statement: 'create_table' },
+      });
+      (pool.acquire as jest.Mock).mockResolvedValue(mockClient);
+
+      const app = createApp({
+        pool,
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+
+      const token = loginResponse.body.token;
+
+      const response = await request(app)
+        .post('/sql')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          sql: `CREATE TABLE Student (
+            StudentID VARCHAR(10) PRIMARY KEY,
+            Email VARCHAR(100) UNIQUE NOT NULL,
+            DateOfBirth DATE
+          );`,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('Normalized CREATE TABLE for engine compatibility'),
+        ])
+      );
+
+      const normalizedSql = (mockClient.executeSql as jest.Mock).mock.calls[0][0] as string;
+      expect(normalizedSql).not.toContain('PRIMARY KEY');
+      expect(normalizedSql).not.toContain('UNIQUE');
+      expect(normalizedSql).toContain('TEXT');
+    });
+
+    test('POST /sql strips unsupported CHECK/CONSTRAINT clauses in CREATE TABLE', async () => {
+      const pool = createMockPool();
+      const mockClient = createMockEngineClient();
+      mockClient.executeSql.mockReturnValue({
+        status: 200,
+        body: { ok: true, statement: 'create_table' },
+      });
+      (pool.acquire as jest.Mock).mockResolvedValue(mockClient);
+
+      const app = createApp({
+        pool,
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+      const token = loginResponse.body.token;
+
+      const response = await request(app)
+        .post('/sql')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          sql: `CREATE TABLE Student (
+            StudentID VARCHAR(10) PRIMARY KEY,
+            Email VARCHAR(100) UNIQUE NOT NULL,
+            DateOfBirth DATE,
+            CONSTRAINT chk_student_dob CHECK (DateOfBirth < CURRENT_DATE)
+          );`,
+        });
+
+      expect(response.status).toBe(200);
+      const normalizedSql = (mockClient.executeSql as jest.Mock).mock.calls[0][0] as string;
+      expect(normalizedSql).not.toContain('PRIMARY KEY');
+      expect(normalizedSql).not.toContain('UNIQUE');
+      expect(normalizedSql).not.toContain('CONSTRAINT');
+      expect(normalizedSql).not.toContain('CHECK');
+    });
+
+    test('POST /sql supports CREATE DATABASE command', async () => {
+      const app = createApp({
+        pool: createMockPool(),
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+
+      const token = loginResponse.body.token;
+
+      const response = await request(app)
+        .post('/sql')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ sql: 'CREATE DATABASE school;' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.statement).toBe('create_database');
+      expect(response.body.database).toBe('school');
+    });
+
+    test('POST /sql supports USE command after database creation', async () => {
+      const app = createApp({
+        pool: createMockPool(),
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+
+      const token = loginResponse.body.token;
+
+      await request(app)
+        .post('/sql')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ sql: 'CREATE DATABASE school;' });
+
+      const response = await request(app)
+        .post('/sql')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ sql: 'USE school;' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.statement).toBe('use_database');
+      expect(response.body.database).toBe('school');
+    });
+
+    test('POST /sql expands INSERT with column list and multiple rows', async () => {
+      const pool = createMockPool();
+      const mockClient = createMockEngineClient();
+      mockClient.describeTable.mockReturnValue({
+        status: 200,
+        body: {
+          ok: true,
+          table: {
+            name: 'Student',
+            columns: [
+              { name: 'StudentID', type: 'varchar(10)', nullable: false },
+              { name: 'StudentName', type: 'varchar(100)', nullable: false },
+              { name: 'Email', type: 'varchar(100)', nullable: false },
+            ],
+          },
+        },
+      });
+      mockClient.executeSql.mockReturnValue({
+        status: 200,
+        body: { ok: true, statement: 'insert' },
+      });
+      (pool.acquire as jest.Mock).mockResolvedValue(mockClient);
+
+      const app = createApp({
+        pool,
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+      const token = loginResponse.body.token;
+
+      const response = await request(app)
+        .post('/sql')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          sql: `INSERT INTO Student (StudentID, StudentName, Email) VALUES
+            ('S001', 'Alice Johnson', 'alice@university.edu'),
+            ('S002', 'Bob Smith', 'bob@university.edu');`,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.statement).toBe('insert');
+      expect(response.body.insertedRows).toBe(2);
+      expect(response.body.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('Expanded INSERT column-list syntax'),
+        ])
+      );
+      expect(mockClient.describeTable).toHaveBeenCalledWith('Student');
+      expect(mockClient.executeSql).toHaveBeenCalledTimes(2);
+    });
+
+    test('GET /databases lists available database names', async () => {
+      const app = createApp({
+        pool: createMockPool(),
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+
+      const token = loginResponse.body.token;
+
+      const response = await request(app)
+        .get('/databases')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.ok).toBe(true);
+      expect(response.body.databases).toEqual(expect.arrayContaining(['advanced']));
+    });
+
+    test('GET /schema/er returns tables and inferred relations', async () => {
+      const pool = createMockPool();
+      const mockClient = createMockEngineClient();
+      mockClient.listTables.mockReturnValue({
+        status: 200,
+        body: { ok: true, tables: ['students', 'courses'] },
+      });
+      mockClient.describeTable
+        .mockReturnValueOnce({
+          status: 200,
+          body: {
+            ok: true,
+            table: {
+              name: 'students',
+              columns: [
+                { name: 'id', type: 'int', nullable: false },
+                { name: 'courseId', type: 'int', nullable: false },
+              ],
+            },
+          },
+        })
+        .mockReturnValueOnce({
+          status: 200,
+          body: {
+            ok: true,
+            table: {
+              name: 'courses',
+              columns: [{ name: 'id', type: 'int', nullable: false }],
+            },
+          },
+        });
+      (pool.acquire as jest.Mock).mockResolvedValue(mockClient);
+
+      const app = createApp({
+        pool,
+        statementRegistry: new PreparedStatementRegistry(),
+      });
+
+      const loginResponse = await request(app).post('/auth/login').send({
+        username: 'testuser',
+        password: 'testpass',
+      });
+      const token = loginResponse.body.token;
+
+      const response = await request(app)
+        .get('/schema/er')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.database).toBe('advanced');
+      expect(response.body.tables).toHaveLength(2);
+      expect(response.body.relations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fromTable: 'students',
+            fromColumn: 'courseId',
+            toTable: 'courses',
+            toColumn: 'id',
+          }),
+        ])
+      );
     });
 
     test('GET /tables requires authentication', async () => {
