@@ -55,6 +55,27 @@ export interface InsertRowResponse {
   table: string;
 }
 
+export interface DatabaseCatalogResponse {
+  ok: boolean;
+  databases: string[];
+  current: string;
+}
+
+export interface ErRelation {
+  fromTable: string;
+  fromColumn: string;
+  toTable: string;
+  toColumn: string;
+  kind: 'inferred';
+}
+
+export interface ErSchemaResponse {
+  ok: boolean;
+  database: string;
+  tables: TableSchema[];
+  relations: ErRelation[];
+}
+
 const DEFAULT_TIMEOUT_MS = 10000;
 
 async function apiFetch<T>(
@@ -207,4 +228,28 @@ export async function insertTableRow(
       body: JSON.stringify({ values }),
     }
   );
+}
+
+export async function listDatabases(
+  baseUrl: string,
+  token: string
+): Promise<ApiResult<DatabaseCatalogResponse>> {
+  return apiFetch<DatabaseCatalogResponse>(`${baseUrl}/databases`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+export async function getErSchema(
+  baseUrl: string,
+  token: string
+): Promise<ApiResult<ErSchemaResponse>> {
+  return apiFetch<ErSchemaResponse>(`${baseUrl}/schema/er`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
 }

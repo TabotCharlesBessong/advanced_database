@@ -411,6 +411,61 @@ This roadmap outlines a comprehensive, phased approach to building a custom rela
   - Video tutorials
 - **Success Criteria**: New users can successfully deploy and use the system
 
+### Phase 9: SQL Compatibility and Product Hardening (Weeks 43-48)
+**Goal**: Improve SQL ergonomics, multi-database workflows, and PostgreSQL-like capabilities
+
+#### Week 43-44: SQL Compatibility Layer
+- **Objectives**:
+  - Support running highlighted SQL segments from multi-statement scripts
+  - Add SQL compatibility normalization for common unsupported DDL tokens
+  - Support INSERT column-list and multi-row VALUES compatibility flow
+  - Improve parser errors with actionable guidance in API/UI
+- **Deliverables**:
+  - Selection-based execution in SQL editor
+  - Compatibility transforms for unsupported syntax (documented)
+  - INSERT rewrite/expansion pipeline with safe warnings
+  - Structured warning payloads from API
+- **Success Criteria**: Common classroom/business DDL scripts execute with clear feedback
+
+#### Week 45-46: Multi-Database Workflow + ER Diagrams
+- **Objectives**:
+  - Add `CREATE DATABASE` and `USE` workflow at API/UI level
+  - Enable per-database browsing contexts in the UI
+  - Render ER diagram per selected database
+  - Improve responsive layout for large script authoring and mobile usage
+- **Deliverables**:
+  - Database selector and current-database indicator
+  - Database catalog endpoints and persistence strategy
+  - ER diagram view with table nodes and relationships
+  - Refined adaptive UI breakpoints and larger SQL workspace ergonomics
+- **Technical Details**:
+  - Metadata storage for foreign keys and relationships
+  - Schema introspection pipeline for diagram generation
+- **Success Criteria**: Users can create/select databases and view ER diagrams per database
+
+#### Week 47-48: PostgreSQL Parity Backlog (Prioritized)
+- **Objectives**:
+  - Close high-value SQL gaps vs PostgreSQL
+  - Expand DDL and constraint support
+  - Improve transaction and observability tooling
+- **Deliverables**:
+  - Constraint support: PRIMARY KEY, UNIQUE, CHECK, FOREIGN KEY, DEFAULT
+  - Data types: DATE/TIMESTAMP/BOOLEAN/DECIMAL and type coercion rules
+  - DML: UPDATE, DELETE, ALTER TABLE, DROP TABLE, CREATE INDEX enhancements
+  - Query features: subqueries, aliases, LIMIT/OFFSET, richer JOIN semantics
+  - Catalog/introspection: information schema-like views and describe metadata
+  - Durability: stronger WAL recovery, checkpoints, crash test matrix
+  - Security/authz: role model, schema-level permissions
+- **Success Criteria**: Engine supports a significantly larger subset of practical SQL workloads
+
+### PostgreSQL Gap Register (Continuous)
+- Stored procedures, triggers, and views/materialized views
+- Advanced indexing options (composite indexes, expression indexes)
+- Query planner improvements (cost model depth, join order optimization)
+- MVCC/isolation levels parity and lock diagnostics
+- Replication, backup/restore tooling, and migration tooling
+- Extension mechanism and robust tooling ecosystem integration
+
 ## Risk Management
 
 ### Technical Risks
