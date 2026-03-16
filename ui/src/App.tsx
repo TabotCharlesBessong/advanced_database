@@ -3,15 +3,20 @@ import {
   ConnectionConfig,
   describeTable,
   executeSql,
+  ErRelation,
   getTableRows,
+  getErSchema,
   initializeDatabase,
   insertTableRow,
+  listDatabases,
   listTables,
   login,
   signup,
   TableSchema,
 } from './api/client';
 import { ConnectionPanel } from './components/ConnectionPanel';
+import { DatabaseSelector } from './components/DatabaseSelector';
+import { ErDiagram } from './components/ErDiagram';
 import { ImportExportPanel } from './components/ImportExportPanel';
 import { PerformanceDashboard, PerformanceMetric } from './components/PerformanceDashboard';
 import { PreferencesPanel, UserPreferences } from './components/PreferencesPanel';
@@ -29,6 +34,7 @@ interface SessionState {
   baseUrl: string;
   token: string;
   username: string;
+  currentDatabase: string;
 }
 
 const DEFAULT_API_URL = 'http://localhost:3000';
@@ -117,9 +123,13 @@ export function App() {
   const [queryResult, setQueryResult] = useState<unknown>(null);
   const [statusMessage, setStatusMessage] = useState('Not connected.');
   const [tables, setTables] = useState<string[]>([]);
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [currentDatabase, setCurrentDatabase] = useState<string | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [selectedSchema, setSelectedSchema] = useState<TableSchema | null>(null);
   const [selectedRows, setSelectedRows] = useState<Array<Record<string, unknown>>>([]);
+  const [erTables, setErTables] = useState<TableSchema[]>([]);
+  const [erRelations, setErRelations] = useState<ErRelation[]>([]);
   const [rowDialogOpen, setRowDialogOpen] = useState(false);
   const [sqlDraft, setSqlDraft] = useState<string>(() => readStoredJson(SQL_DRAFT_KEY, STARTER_SQL));
   const [queryHistory, setQueryHistory] = useState<QueryHistoryEntry[]>(() =>
@@ -227,8 +237,54 @@ export function App() {
     setBrowserBusy(false);
   };
 
+  const refreshDatabaseCatalog = async (baseUrl: string, token: string) => {
+    const response = await listDatabases(baseUrl, token);
+    recordMetric('list_databases', response);
+    if (!response.ok || !response.data) {
+      setStatusMessage(`Failed to load databases: ${response.error}`);
+      return;
+    }
+
+    const catalog = response.data;
+
+    setDatabases(catalog.databases);
+    setCurrentDatabase(catalog.current);
+    setSession((previous) =>
+      previous
+        ? {
+            ...previous,
+            currentDatabase: catalog.current,
+          }
+        : previous
+    );
+  };
+
+  const refreshErSchema = async (baseUrl: string, token: string) => {
+    const response = await getErSchema(baseUrl, token);
+    recordMetric('schema_er', response);
+    if (!response.ok || !response.data) {
+      setStatusMessage(`Failed to load ER diagram: ${response.error}`);
+      return;
+    }
+
+    const schema = response.data;
+
+    setErTables(schema.tables);
+    setErRelations(schema.relations);
+    setCurrentDatabase(schema.database);
+    setSession((previous) =>
+      previous
+        ? {
+            ...previous,
+            currentDatabase: schema.database,
+          }
+        : previous
+    );
+  };
+
   const refreshTables = async (baseUrl: string, token: string) => {
     setBrowserBusy(true);
+    await refreshDatabaseCatalog(baseUrl, token);
     const response = await listTables(baseUrl, token);
     recordMetric('list_tables', response);
 
@@ -245,6 +301,7 @@ export function App() {
       setSelectedSchema(null);
       setSelectedRows([]);
       setStatusMessage('No tables found yet.');
+      await refreshErSchema(baseUrl, token);
       setBrowserBusy(false);
       return;
     }
@@ -253,8 +310,10 @@ export function App() {
       await loadTableDetails(baseUrl, token, response.data.tables[0]);
     } else {
       setStatusMessage(`Loaded ${response.data.tables.length} table(s).`);
-      setBrowserBusy(false);
     }
+
+    await refreshErSchema(baseUrl, token);
+    setBrowserBusy(false);
   };
 
   const handleConnect = async (config: ConnectionConfig) => {
@@ -282,6 +341,7 @@ export function App() {
       baseUrl: config.baseUrl,
       token: loginResponse.data.token,
       username: loginResponse.data.user.username,
+      currentDatabase: 'advanced',
     });
     setStatusMessage(`Connected as ${loginResponse.data.user.username}`);
     await refreshTables(config.baseUrl, loginResponse.data.token);
@@ -313,6 +373,7 @@ export function App() {
       baseUrl: config.baseUrl,
       token: signupResponse.data.token,
       username: signupResponse.data.user.username,
+      currentDatabase: 'advanced',
     });
     setStatusMessage(`Welcome, ${signupResponse.data.user.username}. You're connected.`);
     await refreshTables(config.baseUrl, signupResponse.data.token);
@@ -323,9 +384,13 @@ export function App() {
     setSession(null);
     setQueryResult(null);
     setTables([]);
+    setDatabases([]);
+    setCurrentDatabase(null);
     setSelectedTable(null);
     setSelectedSchema(null);
     setSelectedRows([]);
+    setErTables([]);
+    setErRelations([]);
     setRowDialogOpen(false);
     setStatusMessage('Disconnected.');
   };
@@ -354,10 +419,36 @@ export function App() {
 
     const statement =
       typeof response.data === 'object' && response.data !== null
-        ? (response.data as { statement?: string }).statement
+        ? (response.data as { statement?: string; database?: string; warnings?: string[] }).statement
         : undefined;
 
-    if (preferences.autoRefreshTables && (statement === 'create_table' || statement === 'insert')) {
+    const responseDatabase =
+      typeof response.data === 'object' && response.data !== null
+        ? (response.data as { database?: string }).database
+        : undefined;
+    if (responseDatabase) {
+      setCurrentDatabase(responseDatabase);
+      setSession((previous) =>
+        previous ? { ...previous, currentDatabase: responseDatabase } : previous
+      );
+    }
+
+    const warnings =
+      typeof response.data === 'object' && response.data !== null
+        ? (response.data as { warnings?: string[] }).warnings
+        : undefined;
+
+    if (warnings && warnings.length > 0) {
+      setStatusMessage(`Query completed with warnings: ${warnings.join(' ')}`);
+    }
+
+    if (
+      preferences.autoRefreshTables &&
+      (statement === 'create_table' ||
+        statement === 'insert' ||
+        statement === 'create_database' ||
+        statement === 'use_database')
+    ) {
       await refreshTables(session.baseUrl, session.token);
     }
 
@@ -378,6 +469,29 @@ export function App() {
     }
 
     await loadTableDetails(session.baseUrl, session.token, tableName);
+  };
+
+  const handleSelectDatabase = async (databaseName: string) => {
+    if (!session) {
+      return;
+    }
+
+    setBrowserBusy(true);
+    const response = await executeSql(session.baseUrl, session.token, `USE ${databaseName};`);
+    recordMetric('use_database', response);
+    if (!response.ok) {
+      setStatusMessage(`Failed to switch database: ${response.error}`);
+      setBrowserBusy(false);
+      return;
+    }
+
+    setCurrentDatabase(databaseName);
+    setSelectedTable(null);
+    setSelectedSchema(null);
+    setSelectedRows([]);
+    await refreshTables(session.baseUrl, session.token);
+    setStatusMessage(`Using database ${databaseName}.`);
+    setBrowserBusy(false);
   };
 
   const handleInsertRow = async (values: Record<string, string | number | null>) => {
@@ -530,6 +644,7 @@ export function App() {
               <li>Status: {statusMessage}</li>
               <li>User: {session?.username ?? 'n/a'}</li>
               <li>Endpoint: {session?.baseUrl ?? DEFAULT_API_URL}</li>
+              <li>Database: {currentDatabase ?? session?.currentDatabase ?? 'advanced'}</li>
               <li>History: {queryHistory.length} items</li>
               <li>Favorites: {favoriteQueries.length} items</li>
             </ul>
@@ -576,16 +691,33 @@ export function App() {
             </section>
           ) : activeView === 'browser' ? (
             <section className="browser-layout">
-              <TableExplorer
-                tables={tables}
-                selectedTable={selectedTable}
-                busy={browserBusy}
-                disabled={!connected}
-                onSelect={handleSelectTable}
-                onRefresh={handleRefreshTables}
-              />
+              <div className="browser-sidebar-stack">
+                <DatabaseSelector
+                  databases={databases}
+                  currentDatabase={currentDatabase}
+                  busy={browserBusy}
+                  disabled={!connected}
+                  onRefresh={handleRefreshTables}
+                  onSelect={handleSelectDatabase}
+                />
+
+                <TableExplorer
+                  tables={tables}
+                  selectedTable={selectedTable}
+                  busy={browserBusy}
+                  disabled={!connected}
+                  onSelect={handleSelectTable}
+                  onRefresh={handleRefreshTables}
+                />
+              </div>
 
               <div className="browser-main">
+                <ErDiagram
+                  databaseName={currentDatabase}
+                  tables={erTables}
+                  relations={erRelations}
+                />
+
                 <SchemaDiagram schema={selectedSchema} />
 
                 <section className="panel rows-panel">
