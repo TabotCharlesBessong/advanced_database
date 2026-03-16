@@ -830,8 +830,71 @@ function parseSchemaColumns(body: unknown): string[] | null {
   return names.length > 0 ? names : null;
 }
 
+function normalizeWhitespaceOutsideStrings(sql: string): string {
+  let result = '';
+  let inQuote: string | null = null;
+  let lastWasWhitespace = false;
+  let i = 0;
+
+  while (i < sql.length) {
+    const ch = sql[i];
+
+    if (inQuote) {
+      result += ch;
+
+      if (ch === inQuote) {
+        // Handle doubled single-quote inside string literals: ''
+        if (ch === "'" && i + 1 < sql.length && sql[i + 1] === "'") {
+          result += sql[i + 1];
+          i += 2;
+          continue;
+        }
+        inQuote = null;
+        i += 1;
+        continue;
+      }
+
+      // Handle backslash escapes inside quoted strings (\')
+      if (ch === '\\' && i + 1 < sql.length) {
+        result += sql[i + 1];
+        i += 2;
+        continue;
+      }
+
+      i += 1;
+      continue;
+    } else {
+      // Enter quoted region
+      if (ch === "'" || ch === '"' || ch === '`') {
+        inQuote = ch;
+        result += ch;
+        lastWasWhitespace = false;
+        i += 1;
+        continue;
+      }
+
+      // Collapse whitespace when outside quotes
+      if (/\s/.test(ch)) {
+        if (!lastWasWhitespace && result.length > 0) {
+          result += ' ';
+          lastWasWhitespace = true;
+        }
+        i += 1;
+        continue;
+      }
+
+      result += ch;
+      lastWasWhitespace = false;
+      i += 1;
+    }
+  }
+
+  // Trim leading/trailing whitespace that is necessarily outside any quoted string
+  return result.trim();
+}
+
 function expandInsertSqlForEngine(sql: string, client: EngineClient): InsertExpansionResult | null {
-  const compact = sql.trim().replace(/\s+/g, ' ');
+  const compact = normalizeWhitespaceOutsideStrings(sql);
   const insertWithColumns = compact.match(
     /^INSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]+)\)\s+VALUES\s+([\s\S]+?);?$/i
   );
