@@ -21,9 +21,9 @@ export function ConnectionPanel({
   defaultUrl,
 }: ConnectionPanelProps) {
   const [baseUrl, setBaseUrl] = useState(defaultUrl);
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('password123');
-  const [confirmPassword, setConfirmPassword] = useState('password123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
