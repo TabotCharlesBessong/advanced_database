@@ -1,0 +1,66 @@
+{
+  "sqltools.connections": [
+    {
+      "mysqlOptions": {
+        "authProtocol": "default",
+        "enableSsl": "Disabled"
+      },
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 3306,
+      "driver": "MySQL",
+      "name": "mysql",
+      "database": "portfolio",
+      "username": "root",
+      "connectionTimeout": 30,
+      "askForPassword": true
+    },
+    {
+      "pgOptions": {
+        "statement_timeout": 50
+      },
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "askForPassword": true,
+      "driver": "PostgreSQL",
+      "name": "postgresql",
+      "database": "realestate_db",
+      "username": "postgres",
+      "connectionTimeout": 30
+    },
+    {
+      "pgOptions": {
+        "query_timeout": 1000
+      },
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "askForPassword": true,
+      "driver": "PostgreSQL",
+      "name": "retail",
+      "database": "retail_store",
+      "username": "postgres",
+      "connectionTimeout": 500
+    },
+    {
+      "pgOptions": {
+        "query_timeout": 200,
+        "connectionTimeoutMillis": 1000
+      },
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "askForPassword": true,
+      "driver": "PostgreSQL",
+      "name": "portfolio",
+      "database": "portfolio_retail_store",
+      "username": "postgres",
+      "connectionTimeout": 50
+    }
+  ]
+}
